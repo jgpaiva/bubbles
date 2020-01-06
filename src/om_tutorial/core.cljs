@@ -53,6 +53,36 @@
   (testing "returns empty when it's impossible to generate without overlap"
     (is (= (gen-circle 1 10 100 100 [{:p {:x 50 :y 55} :r 5}]  (fn [] 0.5)) nil))))
 
+(defn gen-circles [sizeDiff zoom targetOccupation]
+  (let [minRadius 10
+        width (* zoom minRadius)
+        ratio 2.4
+        height (Math.round (/ width ratio))
+        area (* width height)
+        maxRadius (min (/ width 2) (/ height 2) (* minRadius sizeDiff))
+        iterations (/ (* width height) (* minRadius minRadius))]
+    (:circles
+     (reduce
+      (fn [{:keys [circles occupation]}]
+        (if (< (/ occupation area) targetOccupation)
+          (if-let [circle (gen-circle minRadius maxRadius width height circles)]
+            {:circles (conj circles circle)
+             :occupation (+ occupation
+                            (* Math.PI (:r circle) (:r circle)))}
+            {:circles circles :occupation occupation})
+          {:circles circles :occupation occupation}))
+      {:circles [] :occupation 0}
+      (range iterations)))))
+(deftest test-gen-circles
+  (testing "tries to occupy to the target occupation"
+    (is (= (gen-circles 10 1 -1) [])))
+  (testing "may go over the target occupation, but it stops there"
+    (is (= (count (gen-circles 10 10 0.001)) 1)))
+  (testing "creates lots of circles if there's space and the target occupation so requires"
+    (is (> (count (gen-circles 1 100 0.5)) 10)))
+  (testing "will not create lots of circles if the target occupation is low"
+    (is (= (count (gen-circles 1 100 0.00000001)) 1))))
+
 (def width 800)
 (def height 600)
 
