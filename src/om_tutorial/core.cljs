@@ -1,28 +1,60 @@
 (ns om-tutorial.core
   (:require [goog.dom :as gdom]
             [om.next :as om :refer-macros [defui]]
-            [om.dom :as dom]))
+            [om.dom :as dom]
+            [cljs.test :refer-macros [deftest is testing run-tests]]))
 
 (def app-state (atom {:count 1}))
 
-(defn make-circle [x y r] (dom/circle #js {:key (hash (str x y r)) :cx x :cy y :r r :fill "#ff0066"}))
+(defn draw-circle [circle]
+  (dom/circle #js {
+                   :key (hash (str circle))
+                   :cx (:x (:p circle))
+                   :cy (:y (:p circle))
+                   :r (:r circle)
+                   :fill "#ff0066"
+                   }))
 
-(defn test-eq [name a b] (assert (= a b) (str name "FAIL: " a " is not equal to " b)))
 
 (defn distance[a b]
   (let [p1 (- (:x b) (:x a))
         p2 (- (:y b) (:y a))]
     (Math.sqrt (+ (* p1 p1) (* p2 p2)))))
-(test-eq "calculates distance between two points"
-        (distance {:x 1 :y 1} {:x 1 :y 10}),
-        9)
-(test-eq "also works reversed"
-        (distance {:x 10 :y 1} {:x 1 :y 1}),
-        9)
-(test-eq "works in other cases"
-        (distance {:x 1 :y 1} {:x 2 :y 2}),
-        (Math.sqrt 2))
+(deftest test-distance
+  (testing "calculates distance between two points"
+    (is (= (distance {:x 1 :y 1} {:x 1 :y 10}) 9)))
+  (testing "also works reversed"
+    (is (= (distance {:x 10 :y 1} {:x 1 :y 1}) 9)))
+  (testing "works in other cases"
+    (is (= (distance {:x 1 :y 1} {:x 2 :y 2}) (Math.sqrt 2)))))
 
+(defn gen-circle
+  ([minRadius maxRadius width height circles]
+   (gen-circle minRadius maxRadius width height circles Math.random))
+  ([minRadius maxRadius width height circles random]
+   (let [r (+ minRadius (Math.round (* (random) (- maxRadius minRadius))))
+         p {
+            :x (Math.round (+ r (* (random) (- width (* 2 r)))))
+            :y (Math.round (+ r (* (random) (- height (* 2 r)))))
+            }
+         m (apply min (map (fn [x]
+                             (let [d (distance p (:p x))]
+                               (Math.floor (- d (:r x)))))
+                           circles))
+         ]
+     (if (or (not m) (>= m minRadius))
+       {:p p, :r (min m r)}))))
+(deftest test-gen-circle
+  (testing "creates circles"
+    (is (= (gen-circle 1 10 100 100 []  (fn [] 0.5)) {:p {:x 50 :y 50} :r 6})))
+  (testing "returns the minimum radius if the circle would overlap with an existing one"
+    (is (= (gen-circle 1 10 100 100 [{:p {:x 50 :y 55} :r 2}]  (fn [] 0.5))
+           {:p {:x 50 :y 50} :r 3})))
+  (testing "returns empty when it's impossible to generate without overlap"
+    (is (= (gen-circle 1 10 100 100 [{:p {:x 50 :y 55} :r 5}]  (fn [] 0.5)) nil))))
+
+(def width 800)
+(def height 600)
 
 (defui Counter
   Object
@@ -35,12 +67,20 @@
                            (fn [e]
                              (swap! app-state update-in [:count] inc))}
                       "Click me!")
-                     (dom/svg nil
-                              (map (fn [x] [(make-circle (+ 20 (* 20 x)) 20 10)]) (range count)))
-                     ))))
+                     (dom/svg #js {:width width :height height}
+                              (map draw-circle
+                                   (reduce
+                                    (fn [circles _]
+                                      (if-let [circle (gen-circle 1 30 width height circles)]
+                                        (conj circles circle)
+                                        circles))
+                                    []
+                                    (range count))))))))
 
 (def reconciler
   (om/reconciler {:state app-state}))
 
 (om/add-root! reconciler
               Counter (gdom/getElement "app"))
+
+(cljs.test/run-tests)
