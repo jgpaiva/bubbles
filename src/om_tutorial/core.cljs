@@ -94,12 +94,11 @@
             (dom/div nil
                      (dom/span nil (str "Count: " count))
                      (dom/br nil)
-                     (dom/input #js {:type "range" :min 1 :max 100 :value count :onChange (fn [e] (swap! app-state update-in [:count] (fn [_] (-> e .-target .-value))))})
+                     (dom/input #js {:type "range" :min 1 :max 100 :value count
+                                     :onChange (fn [e] (swap! app-state update-in [:count] (fn [_] (int (-> e .-target .-value)))))})
                      (dom/br nil)
                      (dom/button
-                      #js {:onClick
-                           (fn [e]
-                             (swap! app-state update-in [:count] inc))}
+                      #js {:onClick (fn [e] (swap! app-state update-in [:count] inc))}
                       "Click me!")
                      (dom/br nil)
                      (dom/svg #js {:width width :height height}
