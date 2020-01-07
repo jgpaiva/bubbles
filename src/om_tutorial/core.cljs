@@ -2,7 +2,8 @@
   (:require [goog.dom :as gdom]
             [om.next :as om :refer-macros [defui]]
             [om.dom :as dom]
-            [cljs.test :refer-macros [deftest is testing run-tests]]))
+            [cljs.test :refer-macros [deftest is testing run-tests]]
+            [clojure.datafy :as d]))
 
 (def app-state (atom {:count 1}))
 
@@ -92,11 +93,15 @@
           (let [{:keys [count]} (om/props this)]
             (dom/div nil
                      (dom/span nil (str "Count: " count))
+                     (dom/br nil)
+                     (dom/input #js {:type "range" :min 1 :max 100 :value count :onChange (fn [e] (swap! app-state update-in [:count] (fn [_] (-> e .-target .-value))))})
+                     (dom/br nil)
                      (dom/button
                       #js {:onClick
                            (fn [e]
                              (swap! app-state update-in [:count] inc))}
                       "Click me!")
+                     (dom/br nil)
                      (dom/svg #js {:width width :height height}
                               (map draw-circle
                                    (reduce
