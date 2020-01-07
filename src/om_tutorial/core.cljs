@@ -5,7 +5,14 @@
             [cljs.test :refer-macros [deftest is testing run-tests]]
             [clojure.datafy :as d]))
 
-(def app-state (atom {:count 1}))
+(def app-state (atom {
+                      :sizeDiff 1
+                      :zoom 1.0
+                      :targetOccupation 0.25
+                      }))
+
+(def width 800)
+(def height 600)
 
 (defn draw-circle [circle]
   (dom/circle #js {
@@ -15,7 +22,6 @@
                    :r (:r circle)
                    :fill "#ff0066"
                    }))
-
 
 (defn distance[a b]
   (let [p1 (- (:x b) (:x a))
@@ -55,13 +61,10 @@
     (is (= (gen-circle 1 10 100 100 [{:p {:x 50 :y 55} :r 5}]  (fn [] 0.5)) nil))))
 
 (defn gen-circles [sizeDiff zoom targetOccupation]
-  (let [minRadius 10
-        width (* zoom minRadius)
-        ratio 2.4
-        height (Math.round (/ width ratio))
+  (let [minRadius (* zoom 10)
         area (* width height)
         maxRadius (min (/ width 2) (/ height 2) (* minRadius sizeDiff))
-        iterations (/ (* width height) (* minRadius minRadius))]
+        iterations (* 10 (/ (* width height) (* Math.PI minRadius minRadius)))]
     (:circles
      (reduce
       (fn [{:keys [circles occupation]}]
@@ -80,36 +83,32 @@
   (testing "may go over the target occupation, but it stops there"
     (is (= (count (gen-circles 10 10 0.001)) 1)))
   (testing "creates lots of circles if there's space and the target occupation so requires"
-    (is (> (count (gen-circles 1 100 0.5)) 10)))
+    (is (> (count (gen-circles 1 10 0.5)) 0.9)))
   (testing "will not create lots of circles if the target occupation is low"
-    (is (= (count (gen-circles 1 100 0.00000001)) 1))))
+    (is (= (count (gen-circles 1 10 0.00000001)) 1))))
 
-(def width 800)
-(def height 600)
+(defn draw-range [param value min max step converter-function]
+  [
+   (dom/input #js {:type "range" :min min :max max :step step :value value
+                   :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))})
+   (dom/span nil (str param ":" value))
+   (dom/br nil)
+   ])
 
 (defui Counter
   Object
   (render [this]
-          (let [{:keys [count]} (om/props this)]
-            (dom/div nil
-                     (dom/span nil (str "Count: " count))
-                     (dom/br nil)
-                     (dom/input #js {:type "range" :min 1 :max 100 :value count
-                                     :onChange (fn [e] (swap! app-state update-in [:count] (fn [_] (int (-> e .-target .-value)))))})
-                     (dom/br nil)
-                     (dom/button
-                      #js {:onClick (fn [e] (swap! app-state update-in [:count] inc))}
-                      "Click me!")
-                     (dom/br nil)
-                     (dom/svg #js {:width width :height height}
-                              (map draw-circle
-                                   (reduce
-                                    (fn [circles _]
-                                      (if-let [circle (gen-circle 1 30 width height circles)]
-                                        (conj circles circle)
-                                        circles))
-                                    []
-                                    (range count))))))))
+          (let [{:keys [sizeDiff zoom targetOccupation]} (om/props this)]
+            (apply dom/div (flatten [
+                                     nil
+                                     (draw-range :sizeDiff sizeDiff 1 30 1 int)
+                                     (draw-range :zoom zoom 1 7 0.05 float)
+                                     (draw-range :targetOccupation targetOccupation 0.01 0.40 0.01 float)
+                                     (dom/svg #js {:width width :height height}
+                                              (map draw-circle (gen-circles sizeDiff zoom targetOccupation)))
+                                     (dom/br nil)
+                                     ])
+                   ))))
 
 (def reconciler
   (om/reconciler {:state app-state}))
