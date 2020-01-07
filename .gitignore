@@ -1,4 +1,4 @@
 *.log
 target
-resources
+resources/public/js
 
