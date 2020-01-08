@@ -1,21 +1,20 @@
-(ns om-tutorial.core
-  (:require [goog.dom :as gdom]
-            [om.next :as om :refer-macros [defui]]
-            [om.dom :as dom]
-            [cljs.test :refer-macros [deftest is testing run-tests]]
-            [clojure.datafy :as d]))
+(ns bubbles.core
+  (:require [reagent.core :as reagent :refer [atom]]
+            [cljs.test :refer-macros [deftest is testing run-tests]]))
 
-(def app-state (atom {
-                      :sizeDiff 1
-                      :zoom 1.0
-                      :targetOccupation 0.25
-                      :hpoint 300
-                      :hrange 0
-                      :spoint 99 ; tricky: can't use 100, because it wraps to 0
-                      :srange 0
-                      :lpoint 50
-                      :lrange 0
-                      }))
+(enable-console-print!)
+
+(defonce app-state (atom {
+                          :sizeDiff 1
+                          :zoom 1.0
+                          :targetOccupation 0.25
+                          :hpoint 300
+                          :hrange 0
+                          :spoint 99 ; tricky: can't use 100, because it wraps to 0
+                          :srange 0
+                          :lpoint 50
+                          :lrange 0
+                          }))
 
 (def width 800)
 (def height 600)
@@ -59,17 +58,7 @@
   (testing "always rounds"
     (is (= (pick-color 50 1 43 2 29 3 (fn [] 0.2)) "hsl(50, 42%, 28%)")))
   (testing "picks the right colors"
-    (is (= (pick-color 300 0 99 0 50 0) "hsl(300, 99%, 50%)")))
-  )
-
-(defn draw-circle [circle]
-  (dom/circle #js {
-                   :key (hash (str circle))
-                   :cx (:x (:p circle))
-                   :cy (:y (:p circle))
-                   :r (:r circle)
-                   :fill (:f circle)
-                   }))
+    (is (= (pick-color 300 0 99 0 50 0) "hsl(300, 99%, 50%)"))))
 
 (defn distance[a b]
   (let [p1 (- (:x b) (:x a))
@@ -138,39 +127,40 @@
 (defn color-circle [hpoint hrange spoint srange lpoint lrange circle]
   (assoc circle :f (pick-color hpoint hrange spoint srange lpoint lrange)))
 
-(defn draw-range [param value min max step converter-function]
-  (dom/div #js {:class "range-container"}
-           (dom/input #js {:type "range" :min min :max max :step step :value value :key (hash (str "range " param)) :class "slider"
-                           :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))})
-           (dom/span nil (str param ":" value))))
+(defn draw-circle [circle]
+  [:circle {
+            :key (hash (str circle))
+            :cx (:x (:p circle))
+            :cy (:y (:p circle))
+            :r (:r circle)
+            :fill (:f circle)
+            }])
 
-(defui Counter
-  Object
-  (render [this]
-          (let [{:keys [sizeDiff zoom targetOccupation hpoint hrange spoint srange lpoint lrange]} (om/props this)]
-            (dom/div
-             nil
-             (dom/div #js {:class "settings-container"}
-              (draw-range :sizeDiff sizeDiff 1 30 1 int)
-              (draw-range :zoom zoom 1 7 0.05 float)
-              (draw-range :targetOccupation targetOccupation 0.01 0.40 0.01 float)
-              (draw-range :hpoint hpoint 0 360 1 int)
-              (draw-range :hrange hrange 0 360 1 int)
-              (draw-range :spoint spoint 0 99 1 int)
-              (draw-range :srange srange 0 99 1 int)
-              (draw-range :lpoint lpoint 0 99 1 int)
-              (draw-range :lrange lrange 0 99 1 int))
-             (dom/svg #js {:width width :height height}
-                      (->> (gen-circles sizeDiff zoom targetOccupation)
-                           (map (partial color-circle hpoint hrange spoint srange lpoint lrange))
-                           (map draw-circle)))
-             (dom/br nil)
-             ))))
+(defn draw-range [param min max step converter-function]
+  [:div {:class "range-container"}
+   [:input {:type "range" :min min :max max :step step :value (param @app-state) :key (hash (str "range " param)) :class "slider"
+               :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))}]
+   [:span nil (str param ":" (param @app-state))]])
 
-(def reconciler
-  (om/reconciler {:state app-state}))
+(defn main-render []
+  [:div
+   [:div {:class "settings-container"}
+    (draw-range :sizeDiff 1 30 1 int)
+    (draw-range :zoom 1 7 0.05 float)
+    (draw-range :targetOccupation 0.01 0.40 0.01 float)
+    (draw-range :hpoint 0 360 1 int)
+    (draw-range :hrange 0 360 1 int)
+    (draw-range :spoint 0 99 1 int)
+    (draw-range :srange 0 99 1 int)
+    (draw-range :lpoint 0 99 1 int)
+    (draw-range :lrange 0 99 1 int)
+    ]
+   [:svg {:width width :height height}
+    (->> (gen-circles (:sizeDiff @app-state) (:zoom @app-state) (:targetOccupation @app-state))
+         (map (partial color-circle (:hpoint @app-state) (:hrange @app-state) (:spoint @app-state) (:srange @app-state) (:lpoint @app-state) (:lrange @app-state)))
+         (map draw-circle))]])
 
-(om/add-root! reconciler
-              Counter (gdom/getElement "app"))
+(reagent/render-component [main-render]
+                          (. js/document (getElementById "app")))
 
 (cljs.test/run-tests)

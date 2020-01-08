@@ -1,52 +1,16 @@
 <!DOCTYPE html>
 <html>
-    <head lang="en">
-        <meta charset="UTF-8">
-        <title>Om Tutorial!</title>
-        <style>
-         .settings-container {
-             padding: 30px;
-         }
-         .range-container {
-             height: 30px;
-         }
-         .slider {
-             -webkit-appearance: none;
-             width: 200px;
-             height: 15px;
-             border-radius: 5px;
-             background: #d3d3d3;
-             outline: none;
-             opacity: 0.7;
-             -webkit-transition: .2s;
-             transition: opacity .2s;
-         }
-
-         .slider:hover {
-             opacity: 1;
-         }
-
-         .slider::-webkit-slider-thumb {
-             -webkit-appearance: none;
-             appearance: none;
-             width: 25px;
-             height: 25px;
-             border-radius: 50%;
-             background: #4CAF50;
-             cursor: pointer;
-         }
-
-         .slider::-moz-range-thumb {
-             width: 25px;
-             height: 25px;
-             border-radius: 50%;
-             background: #4CAF50;
-             cursor: pointer;
-         }
-        </style>
-    </head>
-    <body>
-        <div id="app"></div>
-        <script src="js/main.js"></script>
-    </body>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="css/style.css" rel="stylesheet" type="text/css">
+    <link rel="icon" href="https://clojurescript.org/images/cljs-logo-icon-32.png">
+  </head>
+  <body>
+    <div id="app">
+      <h2>Figwheel template</h2>
+      <p>Checkout your developer console.</p>
+    </div>
+    <script src="js/compiled/bubbles.js" type="text/javascript"></script>
+  </body>
 </html>
