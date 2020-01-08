@@ -139,35 +139,33 @@
   (assoc circle :f (pick-color hpoint hrange spoint srange lpoint lrange)))
 
 (defn draw-range [param value min max step converter-function]
-  [
-   (dom/input #js {:type "range" :min min :max max :step step :value value :key (hash (str "range " param))
-                   :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))})
-   (dom/span nil (str param ":" value))
-   (dom/br nil)
-   ])
+  (dom/div #js {:class "range-container"}
+           (dom/input #js {:type "range" :min min :max max :step step :value value :key (hash (str "range " param)) :class "slider"
+                           :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))})
+           (dom/span nil (str param ":" value))))
 
 (defui Counter
   Object
   (render [this]
           (let [{:keys [sizeDiff zoom targetOccupation hpoint hrange spoint srange lpoint lrange]} (om/props this)]
-            (apply dom/div (flatten [
-                                     nil
-                                     (draw-range :sizeDiff sizeDiff 1 30 1 int)
-                                     (draw-range :zoom zoom 1 7 0.05 float)
-                                     (draw-range :targetOccupation targetOccupation 0.01 0.40 0.01 float)
-                                     (draw-range :hpoint hpoint 0 360 1 int)
-                                     (draw-range :hrange hrange 0 360 1 int)
-                                     (draw-range :spoint spoint 0 99 1 int)
-                                     (draw-range :srange srange 0 99 1 int)
-                                     (draw-range :lpoint lpoint 0 99 1 int)
-                                     (draw-range :lrange lrange 0 99 1 int)
-                                     (dom/svg #js {:width width :height height}
-                                              (->> (gen-circles sizeDiff zoom targetOccupation)
-                                                  (map (partial color-circle hpoint hrange spoint srange lpoint lrange))
-                                                  (map draw-circle)))
-                                     (dom/br nil)
-                                     ])
-                   ))))
+            (dom/div
+             nil
+             (dom/div #js {:class "settings-container"}
+              (draw-range :sizeDiff sizeDiff 1 30 1 int)
+              (draw-range :zoom zoom 1 7 0.05 float)
+              (draw-range :targetOccupation targetOccupation 0.01 0.40 0.01 float)
+              (draw-range :hpoint hpoint 0 360 1 int)
+              (draw-range :hrange hrange 0 360 1 int)
+              (draw-range :spoint spoint 0 99 1 int)
+              (draw-range :srange srange 0 99 1 int)
+              (draw-range :lpoint lpoint 0 99 1 int)
+              (draw-range :lrange lrange 0 99 1 int))
+             (dom/svg #js {:width width :height height}
+                      (->> (gen-circles sizeDiff zoom targetOccupation)
+                           (map (partial color-circle hpoint hrange spoint srange lpoint lrange))
+                           (map draw-circle)))
+             (dom/br nil)
+             ))))
 
 (def reconciler
   (om/reconciler {:state app-state}))
