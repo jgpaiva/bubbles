@@ -19,6 +19,24 @@
 (def width 800)
 (def height 600)
 
+(defn encode [params]
+  (->> params
+       (sort-by (fn [[k v]] k))
+       (map (fn [[param {:keys [min max value]}]]
+              (int (* 256 (/ (- value min) (- max min))))))
+       (reduce (fn [acc x] (bit-or (bit-shift-left acc 8) x)) 0)))
+(deftest test-encode
+  (testing "it encodes params in bytes"
+    (is (= (encode {:param1 {:min 0 :max 100 :value 50}}) 0x80)))
+  (testing "it encodes several params in bytes"
+    (is (= (encode {:param1 {:min 1 :max 11 :value 6}
+                    :param2 {:min 0 :max 100 :value 25}}) 0x8040)))
+  (testing "it encodes always in the same order"
+    (is (= (encode {:param1 {:min 0 :max 100 :value 50}
+                    :param2 {:min 0 :max 100 :value 25}})
+           (encode {:param2 {:min 0 :max 100 :value 25}
+                    :param1 {:min 0 :max 100 :value 50}})))))
+
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
 
