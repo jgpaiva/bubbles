@@ -21,9 +21,9 @@
 
 (defn encode [params]
   (->> params
-       (sort-by (fn [[k v]] k))
+       (sort-by first)
        (map (fn [[param {:keys [min max value]}]]
-              (int (* 256 (/ (- value min) (- max min))))))
+              (Math.round (* 256 (/ (- value min) (- max min))))))
        (reduce (fn [acc x] (bit-or (bit-shift-left acc 8) x)) 0)))
 (deftest test-encode
   (testing "it encodes params in bytes"
@@ -36,6 +36,32 @@
                     :param2 {:min 0 :max 100 :value 25}})
            (encode {:param2 {:min 0 :max 100 :value 25}
                     :param1 {:min 0 :max 100 :value 50}})))))
+
+(defn decode [bits params]
+  (let [sorted-params (sort-by first params)
+        partitioned-bits (->> params
+                              (reduce
+                               (fn [{:keys [bits retval]}, _]
+                                 {:bits (bit-shift-right bits 8)
+                                  :retval (conj retval (bit-and bits 0xff))})
+                               {:bits bits :retval []})
+                              :retval
+                              reverse)]
+    (into {} (map (fn [[k v] bits]
+                    (let [min (:min v)
+                          max (:max v)]
+                      [k (assoc v :value (Math.round (+ min (* (- max min) (/ bits 0xff)))))]))
+                  sorted-params
+                  partitioned-bits))))
+(deftest test-decode
+  (testing "it decodes bytes into params"
+    (is (= (decode 0x80 {:param1 {:min 0 :max 100}}) {:param1 {:min 0 :max 100 :value 50}})))
+  (testing "it works with several several params"
+    (is (= (decode 0x8040 {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})
+           {:param1 {:min 1 :max 11 :value 6} :param2 {:min 0 :max 100 :value 25}})))
+  (testing "it decodes always in the same order"
+    (is (= (decode 0xf022 {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
+           (decode 0xf022 {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
 
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
