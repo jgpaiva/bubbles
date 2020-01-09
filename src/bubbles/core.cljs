@@ -14,6 +14,7 @@
                           :srange 0
                           :lpoint 50
                           :lrange 0
+                          :selected false
                           }))
 
 (def width 800)
@@ -62,6 +63,15 @@
   (testing "it decodes always in the same order"
     (is (= (decode 0xf022 {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
            (decode 0xf022 {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
+
+(defn gen-individual
+  ([params] (gen-individual params Math.random))
+  ([params random] (->> params
+                        (map (fn [[k v]] [k (assoc v :value (+ (:min v) (* (random) (- (:max v) (:min v)))))]))
+                        (into {}))))
+(deftest test-gen-individual
+  (testing "it generates random individuals given params"
+    (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
 
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
@@ -199,10 +209,12 @@
     (draw-range :lpoint 0 99 1 int)
     (draw-range :lrange 0 99 1 int)
     ]
-   [:svg {:width width :height height}
-    (->> (gen-circles (:sizeDiff @app-state) (:zoom @app-state) (:targetOccupation @app-state))
-         (map (partial color-circle (:hpoint @app-state) (:hrange @app-state) (:spoint @app-state) (:srange @app-state) (:lpoint @app-state) (:lrange @app-state)))
-         (map draw-circle))]])
+   [:div {:class "svg-container-selected"}
+    [:svg {:width width :height height}
+     (->> (gen-circles (:sizeDiff @app-state) (:zoom @app-state) (:targetOccupation @app-state))
+          (map (partial color-circle (:hpoint @app-state) (:hrange @app-state) (:spoint @app-state) (:srange @app-state) (:lpoint @app-state) (:lrange @app-state)))
+          (map draw-circle))]]
+   ])
 
 (reagent/render-component [main-render]
                           (. js/document (getElementById "app")))
