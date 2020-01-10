@@ -1,9 +1,31 @@
 .settings-container {
     padding: 30px;
 }
+
 .range-container {
     height: 30px;
 }
+
+.svg-container {
+    border-style: solid;
+    border-color: lightgrey;
+    border-width: 5px;
+    margin: 10px;
+}
+
+.svg-container:hover {
+    background-color: lightblue;
+}
+
+.svg-container.selected {
+    border-color: green;
+}
+
+.svg-group-container {
+    display: flex;
+    flex-wrap: wrap;
+}
+
 .slider {
     -webkit-appearance: none;
     width: 200px;

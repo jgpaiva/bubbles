@@ -4,7 +4,9 @@
 
 (enable-console-print!)
 
-(defonce app-state (atom {
+(defn gen-state []
+  (into {} (map (fn [x] [(str x)
+                         {
                           :sizeDiff 1
                           :zoom 1.0
                           :targetOccupation 0.25
@@ -15,10 +17,47 @@
                           :lpoint 50
                           :lrange 0
                           :selected false
-                          }))
+                          }
+                         ])
+                (range 6)))
+  )
 
-(def width 800)
-(def height 600)
+(defn gen-individual
+  ([params] (gen-individual params Math.random))
+  ([params random] (->> params
+                        (map (fn [[k v]] [k (assoc v :value (+ (:min v) (* (random) (- (:max v) (:min v)))))]))
+                        (into {}))))
+(deftest test-gen-individual
+  (testing "it generates random individuals given params"
+    (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
+
+(defn gen-state2 []
+  (into {} (map (fn [x] [(str x)
+                         (->> {:sizeDiff {:min 1 :max 30}
+                               :zoom {:min 1 :max 7}
+                               :targetOccupation {:min 0.01 :max 0.40}
+                               :hpoint {:min 0 :max 360}
+                               :hrange {:min 0 :max 360}
+                               :spoint {:min 0 :max 99} ; tricky: can't use 100, because it wraps to 0
+                               :srange {:min 0 :max 99}
+                               :lpoint {:min 0 :max 99}
+                               :lrange {:min 0 :max 99}
+                               }
+                              (gen-individual)
+                              (fn [x] (assoc x :selected true)))
+                         ])
+                (range 6)))
+  )
+; following lines crash the whole thing
+;(deftest test-gen-state2
+;  (testing "it does stuff"
+;    (is (= (test-gen-state2) {}))))
+
+
+(defonce app-state (atom (gen-state)))
+
+(def width 400)
+(def height 400)
 
 (defn encode [params]
   (->> params
@@ -63,15 +102,6 @@
   (testing "it decodes always in the same order"
     (is (= (decode 0xf022 {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
            (decode 0xf022 {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
-
-(defn gen-individual
-  ([params] (gen-individual params Math.random))
-  ([params random] (->> params
-                        (map (fn [[k v]] [k (assoc v :value (+ (:min v) (* (random) (- (:max v) (:min v)))))]))
-                        (into {}))))
-(deftest test-gen-individual
-  (testing "it generates random individuals given params"
-    (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
 
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
@@ -196,24 +226,25 @@
                :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))}]
    [:span nil (str param ":" (param @app-state))]])
 
+(defn draw-svg [counter state update-f]
+  [:div {:style {:width width :height height}
+         :class (str "svg-container" (if (:selected state) " selected"))
+         :onClick (fn [e] (update-f :selected (fn [x] (not x))))}
+   [:svg {:style {:float "none"} :width width :height height}
+    (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
+         (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
+         (map draw-circle))]])
+
 (defn main-render []
   [:div
-   [:div {:class "settings-container"}
-    (draw-range :sizeDiff 1 30 1 int)
-    (draw-range :zoom 1 7 0.05 float)
-    (draw-range :targetOccupation 0.01 0.40 0.01 float)
-    (draw-range :hpoint 0 360 1 int)
-    (draw-range :hrange 0 360 1 int)
-    (draw-range :spoint 0 99 1 int)
-    (draw-range :srange 0 99 1 int)
-    (draw-range :lpoint 0 99 1 int)
-    (draw-range :lrange 0 99 1 int)
+   [:div {:class "svg-group-container"}
+    (draw-svg 0 (get @app-state "0") (fn [item f] (swap! app-state update-in ["0" item] f)))
+    (draw-svg 1 (get @app-state "1") (fn [item f] (swap! app-state update-in ["1" item] f)))
+    (draw-svg 2 (get @app-state "2") (fn [item f] (swap! app-state update-in ["2" item] f)))
+    (draw-svg 3 (get @app-state "3") (fn [item f] (swap! app-state update-in ["3" item] f)))
+    (draw-svg 4 (get @app-state "4") (fn [item f] (swap! app-state update-in ["4" item] f)))
+    (draw-svg 5 (get @app-state "5") (fn [item f] (swap! app-state update-in ["5" item] f)))
     ]
-   [:div {:class "svg-container-selected"}
-    [:svg {:width width :height height}
-     (->> (gen-circles (:sizeDiff @app-state) (:zoom @app-state) (:targetOccupation @app-state))
-          (map (partial color-circle (:hpoint @app-state) (:hrange @app-state) (:spoint @app-state) (:srange @app-state) (:lpoint @app-state) (:lrange @app-state)))
-          (map draw-circle))]]
    ])
 
 (reagent/render-component [main-render]
