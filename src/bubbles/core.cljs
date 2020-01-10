@@ -4,24 +4,6 @@
 
 (enable-console-print!)
 
-(defn gen-state []
-  (into {} (map (fn [x] [(str x)
-                         {
-                          :sizeDiff 1
-                          :zoom 1.0
-                          :targetOccupation 0.25
-                          :hpoint 300
-                          :hrange 0
-                          :spoint 99 ; tricky: can't use 100, because it wraps to 0
-                          :srange 0
-                          :lpoint 50
-                          :lrange 0
-                          :selected false
-                          }
-                         ])
-                (range 6)))
-  )
-
 (defn gen-individual
   ([params] (gen-individual params Math.random))
   ([params random] (->> params
@@ -31,7 +13,7 @@
   (testing "it generates random individuals given params"
     (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
 
-(defn gen-state2 []
+(defn gen-state []
   (into {} (map (fn [x] [(str x)
                          (->> {:sizeDiff {:min 1 :max 30}
                                :zoom {:min 1 :max 7}
@@ -44,14 +26,21 @@
                                :lrange {:min 0 :max 99}
                                }
                               (gen-individual)
-                              (fn [x] (assoc x :selected true)))
+                              (map (fn [[k v]] [k (:value v)]))
+                              (into {})
+                              ((fn [x] (assoc x :selected false)))
+                              )
                          ])
                 (range 6)))
   )
-; following lines crash the whole thing
-;(deftest test-gen-state2
-;  (testing "it does stuff"
-;    (is (= (test-gen-state2) {}))))
+ ;following lines crash the whole thing
+(deftest test-gen-state
+  (testing "it generates several configs"
+    (is (= (count (gen-state)) 6)))
+  (testing "all configs have a sizeDiff param"
+    (is (every? (fn [[k v]] (:sizeDiff v)) (gen-state))))
+  (testing "all configs have a selected param"
+    (is (every? (fn [[k v]] (contains? v :selected)) (gen-state)))))
 
 
 (defonce app-state (atom (gen-state)))
