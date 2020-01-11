@@ -247,7 +247,7 @@
   (swap! app-state #(identity new-population)))
 
 (defn draw-svg [state]
-  [:svg nil
+  [:svg {:viewBox (clojure.string/join " " [0 0 width height]) :width "100%" :height "100%"}
    (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
         (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
         (map draw-circle))])
