@@ -1,8 +1,12 @@
 (ns bubbles.core
   (:require [reagent.core :as reagent :refer [atom]]
-            [cljs.test :refer-macros [deftest is testing run-tests]]))
+            [cljs.test :refer-macros [deftest is testing run-tests]]
+            [debux.cs.core :as d :refer-macros [clog clogn dbg dbgn break]]))
 
 (enable-console-print!)
+
+(def width 400)
+(def height 400)
 
 (defn gen-individual
   ([params] (gen-individual params Math.random))
@@ -42,11 +46,31 @@
   (testing "all configs have a selected param"
     (is (every? (fn [[k v]] (contains? v :selected)) (gen-state)))))
 
-
 (defonce app-state (atom (gen-state)))
 
-(def width 400)
-(def height 400)
+(defn gen-new-population [current-state]
+  (let [new-state (gen-state)]
+    (->> current-state
+         (map (fn [[k v]] [k (if (:selected v)
+                               (assoc v :selected false)
+                               (get new-state k))]))
+         (into {}))))
+(deftest test-gen-new-population
+  (testing "it generates several configs"
+    (is (= (count (gen-new-population (gen-state))) 6)))
+  (testing "all configs have a sizeDiff param"
+    (is (every? (fn [[k v]] (:sizeDiff v)) (gen-new-population (gen-state)))))
+  (testing "all configs have a selected param"
+    (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population (gen-state)))))
+  (let [sample (assoc-in (gen-state) ["3" :selected] true)]
+    (testing "it keeps only the previously selected ones"
+      (is (every? (fn [[k v]] (if (= "3" k)
+                                (= v (assoc (get sample k) :selected false))
+                                (not= v (get sample k))))
+                  (gen-new-population sample))))
+    (testing "it clears the :selected flag"
+      (is (not-any? (fn [[k v]] (:selected v))
+                  (gen-new-population sample))))))
 
 (defn encode [params]
   (->> params
@@ -215,24 +239,36 @@
                :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))}]
    [:span nil (str param ":" (param @app-state))]])
 
-(defn draw-svg [counter state update-f]
+(defn update-partial-state [prefix item-to-update f]
+  (println (str prefix) ", " item-to-update)
+  (swap! app-state update-in [(str prefix) item-to-update] f))
+
+(defn update-with-new-population [new-population]
+  (swap! app-state #(identity new-population)))
+
+(defn draw-svg [state]
+  [:svg {:style {:float "none"} :width width :height height}
+   (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
+        (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
+        (map draw-circle))])
+
+(defn draw-svg-container [counter state]
   [:div {:style {:width width :height height}
          :class (str "svg-container" (if (:selected state) " selected"))
-         :onClick (fn [e] (update-f :selected (fn [x] (not x))))}
-   [:svg {:style {:float "none"} :width width :height height}
-    (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
-         (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
-         (map draw-circle))]])
+         :onClick (fn [e] (update-partial-state counter :selected (fn [x] (not x))))}
+   [draw-svg (dissoc state :selected)]])
 
 (defn main-render []
   [:div
+   [:button {:onClick (fn [_] (println @app-state))} "Dump state"]
+   [:button {:onClick (fn [_] (update-with-new-population (gen-new-population @app-state)))} "New population"]
    [:div {:class "svg-group-container"}
-    (draw-svg 0 (get @app-state "0") (fn [item f] (swap! app-state update-in ["0" item] f)))
-    (draw-svg 1 (get @app-state "1") (fn [item f] (swap! app-state update-in ["1" item] f)))
-    (draw-svg 2 (get @app-state "2") (fn [item f] (swap! app-state update-in ["2" item] f)))
-    (draw-svg 3 (get @app-state "3") (fn [item f] (swap! app-state update-in ["3" item] f)))
-    (draw-svg 4 (get @app-state "4") (fn [item f] (swap! app-state update-in ["4" item] f)))
-    (draw-svg 5 (get @app-state "5") (fn [item f] (swap! app-state update-in ["5" item] f)))
+    [draw-svg-container 0 (get @app-state "0")]
+    [draw-svg-container 1 (get @app-state "1")]
+    [draw-svg-container 2 (get @app-state "2")]
+    [draw-svg-container 3 (get @app-state "3")]
+    [draw-svg-container 4 (get @app-state "4")]
+    [draw-svg-container 5 (get @app-state "5")]
     ]
    ])
 
