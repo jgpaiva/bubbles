@@ -17,32 +17,31 @@
   (testing "it generates random individuals given params"
     (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
 
+(def state-params-ranges
+  {
+   :sizeDiff {:min 1 :max 30}
+   :zoom {:min 1 :max 7}
+   :targetOccupation {:min 0.01 :max 0.40}
+   :hpoint {:min 0 :max 360}
+   :hrange {:min 0 :max 360}
+   :spoint {:min 0 :max 99} ; tricky: can't use 100, because it wraps to 0
+   :srange {:min 0 :max 99}
+   :lpoint {:min 0 :max 99}
+   :lrange {:min 0 :max 99}
+   })
+
 (defn gen-state []
-  (into {} (map (fn [x] [(str x)
-                         (->> {:sizeDiff {:min 1 :max 30}
-                               :zoom {:min 1 :max 7}
-                               :targetOccupation {:min 0.01 :max 0.40}
-                               :hpoint {:min 0 :max 360}
-                               :hrange {:min 0 :max 360}
-                               :spoint {:min 0 :max 99} ; tricky: can't use 100, because it wraps to 0
-                               :srange {:min 0 :max 99}
-                               :lpoint {:min 0 :max 99}
-                               :lrange {:min 0 :max 99}
-                               }
-                              (gen-individual)
-                              (map (fn [[k v]] [k (:value v)]))
-                              (into {})
-                              ((fn [x] (assoc x :selected false)))
-                              )
-                         ])
-                (range 6)))
-  )
- ;following lines crash the whole thing
+  (into {} (map (fn [x] [x (->> state-params-ranges
+                                (gen-individual)
+                                (map (fn [[k v]] [k (:value v)]))
+                                (into {})
+                                (#(assoc % :selected false)))])
+                (range 8))))
 (deftest test-gen-state
   (testing "it generates several configs"
-    (is (= (count (gen-state)) 6)))
+    (is (= (count (gen-state)) 8)))
   (testing "all configs have a sizeDiff param"
-    (is (every? (fn [[k v]] (:sizeDiff v)) (gen-state))))
+    (is (every? (comp :sizeDiff second) (gen-state))))
   (testing "all configs have a selected param"
     (is (every? (fn [[k v]] (contains? v :selected)) (gen-state)))))
 
@@ -57,19 +56,19 @@
          (into {}))))
 (deftest test-gen-new-population
   (testing "it generates several configs"
-    (is (= (count (gen-new-population (gen-state))) 6)))
+    (is (= (count (gen-new-population (gen-state))) 8)))
   (testing "all configs have a sizeDiff param"
-    (is (every? (fn [[k v]] (:sizeDiff v)) (gen-new-population (gen-state)))))
+    (is (every? (comp :sizeDiff second) (gen-new-population (gen-state)))))
   (testing "all configs have a selected param"
     (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population (gen-state)))))
-  (let [sample (assoc-in (gen-state) ["3" :selected] true)]
+  (let [sample (assoc-in (gen-state) [3 :selected] true)]
     (testing "it keeps only the previously selected ones"
-      (is (every? (fn [[k v]] (if (= "3" k)
+      (is (every? (fn [[k v]] (if (= 3 k)
                                 (= v (assoc (get sample k) :selected false))
                                 (not= v (get sample k))))
                   (gen-new-population sample))))
     (testing "it clears the :selected flag"
-      (is (not-any? (fn [[k v]] (:selected v))
+      (is (not-any? (comp :selected second)
                   (gen-new-population sample))))))
 
 (defn encode [params]
@@ -157,6 +156,9 @@
   (testing "picks the right colors"
     (is (= (pick-color 300 0 99 0 50 0) "hsl(300, 99%, 50%)"))))
 
+(defn color-circle [hpoint hrange spoint srange lpoint lrange circle]
+  (assoc circle :f (pick-color hpoint hrange spoint srange lpoint lrange)))
+
 (defn distance[a b]
   (let [p1 (- (:x b) (:x a))
         p2 (- (:y b) (:y a))]
@@ -174,13 +176,9 @@
    (gen-circle minRadius maxRadius width height circles Math.random))
   ([minRadius maxRadius width height circles random]
    (let [r (+ minRadius (Math.round (* (random) (- maxRadius minRadius))))
-         p {
-            :x (Math.round (+ r (* (random) (- width (* 2 r)))))
-            :y (Math.round (+ r (* (random) (- height (* 2 r)))))
-            }
-         m (apply min (map (fn [x]
-                             (let [d (distance p (:p x))]
-                               (Math.floor (- d (:r x)))))
+         p {:x (Math.round (+ r (* (random) (- width (* 2 r)))))
+            :y (Math.round (+ r (* (random) (- height (* 2 r)))))}
+         m (apply min (map (fn [x] (Math.floor (- (distance p (:p x)) (:r x))))
                            circles))
          ]
      (if (or (not m) (>= m minRadius))
@@ -194,6 +192,9 @@
   (testing "returns empty when it's impossible to generate without overlap"
     (is (= (gen-circle 1 10 100 100 [{:p {:x 50 :y 55} :r 5}]  (fn [] 0.5)) nil))))
 
+(defn circle-area [circle]
+  (* Math.PI (:r circle) (:r circle)))
+
 (defn gen-circles [sizeDiff zoom targetOccupation]
   (let [minRadius (* zoom 10)
         area (* width height)
@@ -205,10 +206,9 @@
         (if (< (/ occupation area) targetOccupation)
           (if-let [circle (gen-circle minRadius maxRadius width height circles)]
             {:circles (conj circles circle)
-             :occupation (+ occupation
-                            (* Math.PI (:r circle) (:r circle)))}
+             :occupation (+ occupation (circle-area circle))}
             {:circles circles :occupation occupation})
-          {:circles circles :occupation occupation}))
+          (reduced {:circles circles :occupation occupation})))
       {:circles [] :occupation 0}
       (range iterations)))))
 (deftest test-gen-circles
@@ -221,17 +221,15 @@
   (testing "will not create lots of circles if the target occupation is low"
     (is (= (count (gen-circles 1 10 0.00000001)) 1))))
 
-(defn color-circle [hpoint hrange spoint srange lpoint lrange circle]
-  (assoc circle :f (pick-color hpoint hrange spoint srange lpoint lrange)))
-
 (defn draw-circle [circle]
-  [:circle {
-            :key (hash (str circle))
-            :cx (:x (:p circle))
-            :cy (:y (:p circle))
-            :r (:r circle)
-            :fill (:f circle)
-            }])
+  [:circle
+   {
+    :key (hash (str circle))
+    :cx (:x (:p circle))
+    :cy (:y (:p circle))
+    :r (:r circle)
+    :fill (:f circle)
+    }])
 
 (defn draw-range [param min max step converter-function]
   [:div {:class "range-container"}
@@ -240,16 +238,15 @@
    [:span nil (str param ":" (param @app-state))]])
 
 (defn update-partial-state [prefix item-to-update f]
-  (println (str prefix) ", " item-to-update)
-  (swap! app-state update-in [(str prefix) item-to-update] f))
+  (swap! app-state update-in [prefix item-to-update] f))
 
 (defn update-with-new-population [new-population]
   (swap! app-state #(identity new-population)))
 
-(defn draw-svg [state]
+(defn draw-svg [{:keys [sizeDiff zoom targetOccupation hpoint hrange spoint srange lpoint lrange]}]
   [:svg {:viewBox (clojure.string/join " " [0 0 width height]) :width "100%" :height "100%"}
-   (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
-        (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
+   (->> (gen-circles sizeDiff zoom targetOccupation)
+        (map #(color-circle hpoint hrange spoint srange lpoint lrange %))
         (map draw-circle))])
 
 (defn draw-svg-container [counter state]
@@ -262,17 +259,20 @@
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:button {:onClick (fn [_] (update-with-new-population (gen-new-population @app-state)))} "New population"]
-    [:button {:onClick (fn [_] (println @app-state))} "Dump state"]
-    ]
+    [:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
+    [:button {:onClick #(println @app-state)} "Dump state"]]
+   [:div {:class "flex-container main-section"}
+    [draw-svg-container 0 (get @app-state 0)]
+    [draw-svg-container 1 (get @app-state 1)]
+    [draw-svg-container 2 (get @app-state 2)]
+    [draw-svg-container 3 (get @app-state 3)]
+    [draw-svg-container 4 (get @app-state 4)]
+    [draw-svg-container 5 (get @app-state 5)]
+    [draw-svg-container 6 (get @app-state 6)]
+    [draw-svg-container 7 (get @app-state 7)]]
    [:div {:class "flex-container"}
-    [draw-svg-container 0 (get @app-state "0")]
-    [draw-svg-container 1 (get @app-state "1")]
-    [draw-svg-container 2 (get @app-state "2")]
-    [draw-svg-container 3 (get @app-state "3")]
-    [draw-svg-container 4 (get @app-state "4")]
-    [draw-svg-container 5 (get @app-state "5")]
-    ]
+    [:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
+    [:button {:onClick #(println @app-state)} "Dump state"]]
    ])
 
 (reagent/render-component [main-render]
