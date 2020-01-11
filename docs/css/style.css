@@ -87,3 +87,37 @@ button {
     background: #4CAF50;
     cursor: pointer;
 }
+
+.centered-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 98vh;
+}
+
+.lds-dual-ring {
+    display: inline-block;
+    width: 144px;
+    height: 144px;
+}
+
+.lds-dual-ring:after {
+    content: " ";
+    display: block;
+    width: 128px;
+    height: 128px;
+    margin: 8px;
+    border-radius: 50%;
+    border: 10px solid lightblue;
+    border-color: lightblue transparent lightblue transparent;
+    animation: lds-dual-ring 1.2s linear infinite;
+}
+
+@keyframes lds-dual-ring {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
