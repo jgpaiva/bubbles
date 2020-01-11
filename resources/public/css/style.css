@@ -1,3 +1,14 @@
+.flex-container {
+    display:flex;
+    flex-wrap:wrap;
+    justify-content: center;
+}
+
+button {
+    width: 150px;
+    height: 50px;
+}
+
 .settings-container {
     padding: 30px;
 }
@@ -7,23 +18,39 @@
 }
 
 .svg-container {
-    border-style: solid;
-    border-color: lightgrey;
-    border-width: 5px;
+    display: flex;
+    position: relative;
     margin: 10px;
-}
-
-.svg-container:hover {
-    background-color: lightblue;
+    box-shadow: 0 8px 14px 0 rgba(0,0,0,0.2);
+    width: 400px;
+    height: 400px;
 }
 
 .svg-container.selected {
-    border-color: green;
+    box-shadow: 0 2px 4px 0 rgba(0,0,0,0.2);
 }
 
-.svg-group-container {
-    display: flex;
-    flex-wrap: wrap;
+.svg-container-overlay {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    transition: .3s ease;
+    opacity: 0;
+    display:flex;
+}
+
+.svg-container-overlay.selected {
+    opacity: 1;
+}
+
+.svg-container img {
+    width: 40px;
+    height: 40px;
+}
+
+.svg-container svg {
+    width: 100%;
+    height: 100%;
 }
 
 .slider {

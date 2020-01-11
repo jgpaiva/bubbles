@@ -247,22 +247,25 @@
   (swap! app-state #(identity new-population)))
 
 (defn draw-svg [state]
-  [:svg {:style {:float "none"} :width width :height height}
+  [:svg nil
    (->> (gen-circles (:sizeDiff state) (:zoom state) (:targetOccupation state))
         (map (partial color-circle (:hpoint state) (:hrange state) (:spoint state) (:srange state) (:lpoint state) (:lrange state)))
         (map draw-circle))])
 
 (defn draw-svg-container [counter state]
-  [:div {:style {:width width :height height}
-         :class (str "svg-container" (if (:selected state) " selected"))
+  [:div {:class (str "svg-container" (if (:selected state) " selected"))
          :onClick (fn [e] (update-partial-state counter :selected (fn [x] (not x))))}
-   [draw-svg (dissoc state :selected)]])
+   [draw-svg (dissoc state :selected)]
+   [:div {:class (str "svg-container-overlay" (if (:selected state) " selected"))}
+    [:img {:src "star.svg"}]]])
 
 (defn main-render []
   [:div
-   [:button {:onClick (fn [_] (println @app-state))} "Dump state"]
-   [:button {:onClick (fn [_] (update-with-new-population (gen-new-population @app-state)))} "New population"]
-   [:div {:class "svg-group-container"}
+   [:div {:class "flex-container"}
+    [:button {:onClick (fn [_] (update-with-new-population (gen-new-population @app-state)))} "New population"]
+    [:button {:onClick (fn [_] (println @app-state))} "Dump state"]
+    ]
+   [:div {:class "flex-container"}
     [draw-svg-container 0 (get @app-state "0")]
     [draw-svg-container 1 (get @app-state "1")]
     [draw-svg-container 2 (get @app-state "2")]
