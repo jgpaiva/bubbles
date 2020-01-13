@@ -156,7 +156,7 @@
 
 (defn gen-new-population [current-state]
   (let [new-state (gen-state)
-        [individual1 individual2] (dbg (take 2 (filter #(:selected (second %)) current-state)))]
+        [individual1 individual2] (take 2 (filter #(:selected (second %)) current-state))]
     (->> current-state
          (map (fn [[k v]] [k (if (:selected v)
                                (assoc v :selected false)
