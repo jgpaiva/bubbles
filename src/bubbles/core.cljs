@@ -8,6 +8,113 @@
 (def width 400)
 (def height 400)
 
+(defn encoded-op [op fst snd]
+  (let [[fst snd] (if (>= (count fst) (count snd)) [fst snd] [snd fst])]
+    (clojure.string/join
+     (reverse (map (fn [a b] (str (op (int a) (int b))))
+                   (reverse fst)
+                   (concat (reverse snd) (repeat "0")))))))
+(deftest test-encoded-op
+  (testing "it applies a bitwise operation to two encoded objects"
+    (is (= (encoded-op bit-or "0001" "0010") "0011"))
+    (is (= (encoded-op bit-and "1001" "1010") "1000")))
+  (testing "it always left-pads with zeroes to apply the operation"
+    (is (= (encoded-op bit-or "00001" "0010") "00011"))
+    (is (= (encoded-op bit-or "0001" "00010") "00011"))))
+
+(defn encode [params]
+  (->> params
+       (sort-by first)
+       (map (fn [[param {:keys [min max value]}]]
+              (encoded-op
+               bit-or
+               "00000000"
+               (.toString (let [retval (Math.round (* 256 (/ (- value min) (- max min))))]
+                            (if (>= retval 256)
+                              255
+                              retval))
+                          2))))
+       (clojure.string/join)))
+(deftest test-encode
+  (testing "it encodes params in bytes"
+    (is (= (encode {:param1 {:min 0 :max 100 :value 50}}) "10000000")))
+  (testing "it encodes several params in bytes"
+    (is (= (encode {:param1 {:min 1 :max 11 :value 6}
+                    :param2 {:min 0 :max 100 :value 25}}) "1000000001000000")))
+  (testing "it encodes always in the same order"
+    (is (= (encode {:param1 {:min 0 :max 100 :value 50}
+                    :param2 {:min 0 :max 100 :value 25}})
+           (encode {:param2 {:min 0 :max 100 :value 25}
+                    :param1 {:min 0 :max 100 :value 50}}))))
+  (testing "it rounds down anything that's above 8 bits"
+    (is (= (encode {:param1 {:min 0 :max 100 :value 100}})
+           "11111111"))))
+
+(defn kinda= [a b]
+  (< (Math.abs (- a b)) 0.1))
+
+(defn decode [encoded params]
+  (let [sorted-params (sort-by first params)
+        partitioned-bits (map #(js/parseInt (clojure.string/join %) 2) (partition 8 encoded))]
+    (into {} (map (fn [[k v] bits]
+                    (let [min (:min v) max (:max v)]
+                      [k (assoc v :value (+ min (* (- max min) (/ bits 0xff))))]))
+                  sorted-params
+                  partitioned-bits))))
+(deftest test-decode
+  (testing "it decodes encoded individuals into params"
+    (is (= (decode "00000000" {:param1 {:min 0 :max 100}}) {:param1 {:min 0 :max 100 :value 0}})))
+  (testing "it isn't very precise"
+    (is (kinda= ((comp :value :param1) (decode "10000000" {:param1 {:min 0 :max 10}})) 5))
+    (is (not= ((comp :value :param1) (decode "10000000" {:param1 {:min 0 :max 100}})) 50)))
+  (testing "it works with several several params"
+    (is (kinda= ((comp :value :p1) (decode "1000000001000000" {:p1 {:min 1 :max 11} :p2 {:min 0 :max 100}}))
+                6))
+    (is (kinda= ((comp :value :p2) (decode "1000000001000000" {:p1 {:min 1 :max 11} :p2 {:min 0 :max 100}}))
+                25)))
+  (testing "it decodes always in the same order"
+    (is (= (decode "1000110001000010" {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
+           (decode "1000110001000010"  {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
+
+(defn gen-mask [percentage individual]
+  (let [numbits (* 8 (count individual))
+        onesCount (Math.round (* percentage numbits))]
+    (clojure.string/join (sort-by #(Math.random)
+                                  (concat
+                                   (repeat onesCount "1")
+                                   (repeat (- numbits onesCount) "0"))))))
+(deftest test-gen-mask
+  (testing "it generates a random mask with the given percentage of ones"
+    (is (= (count (filter #(= % "1") (gen-mask 0.5 {:a :irrelevant :b :irrelevant}))) 8))
+    (is (= (count (filter #(= % "0") (gen-mask 0.5 {:a :irrelevant :b :irrelevant}))) 8))
+    (is (= (gen-mask 1 {:a :irrelevant :b :irrelevant}) "1111111111111111"))))
+
+(defn combine [individual1 individual2 percentage]
+  (let [mask (gen-mask percentage individual1)
+        reverse-mask (encoded-op (comp (partial bit-xor 0x01) bit-or) mask "0")]
+    (decode (encoded-op bit-or
+                        (encoded-op bit-and mask (encode individual1))
+                        (encoded-op bit-and reverse-mask (encode individual2)))
+            individual1)))
+(deftest test-combine
+  (let [p (fn [value min max] {:value value :min min :max max})
+        i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
+        i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
+    (testing "it combines two individuals taking a percentage of bits from individual 1 and getting the remaining from individual 2"
+      (is (kinda= ((comp :value :a) (combine i1 i1 0.5)) 0.5))
+      (is (kinda= ((comp :value :b) (combine i1 i1 0.5)) 0.2))
+      (is (kinda= ((comp :value :a) (combine i1 i2 1)) 0.5))
+      (is (kinda= ((comp :value :b) (combine i1 i2 1)) 0.2)))))
+
+(defn breed [individual1 individual2]
+  (map #(combine individual1 individual2 0.5) (range 8)))
+(deftest test-breed
+  (let [p (fn [value min max] {:value value :min min :max max})
+        i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
+        i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
+    (testing "it breeds new individuals"
+      (is (= (count (breed i1 i2)) 8)))))
+
 (defn gen-individual
   ([params] (gen-individual params Math.random))
   ([params random] (->> params
@@ -48,7 +155,8 @@
 (defonce app-state (atom (gen-state)))
 
 (defn gen-new-population [current-state]
-  (let [new-state (gen-state)]
+  (let [new-state (gen-state)
+        [individual1 individual2] (dbg (take 2 (filter #(:selected (second %)) current-state)))]
     (->> current-state
          (map (fn [[k v]] [k (if (:selected v)
                                (assoc v :selected false)
@@ -70,50 +178,6 @@
     (testing "it clears the :selected flag"
       (is (not-any? (comp :selected second)
                   (gen-new-population sample))))))
-
-(defn encode [params]
-  (->> params
-       (sort-by first)
-       (map (fn [[param {:keys [min max value]}]]
-              (Math.round (* 256 (/ (- value min) (- max min))))))
-       (reduce (fn [acc x] (bit-or (bit-shift-left acc 8) x)) 0)))
-(deftest test-encode
-  (testing "it encodes params in bytes"
-    (is (= (encode {:param1 {:min 0 :max 100 :value 50}}) 0x80)))
-  (testing "it encodes several params in bytes"
-    (is (= (encode {:param1 {:min 1 :max 11 :value 6}
-                    :param2 {:min 0 :max 100 :value 25}}) 0x8040)))
-  (testing "it encodes always in the same order"
-    (is (= (encode {:param1 {:min 0 :max 100 :value 50}
-                    :param2 {:min 0 :max 100 :value 25}})
-           (encode {:param2 {:min 0 :max 100 :value 25}
-                    :param1 {:min 0 :max 100 :value 50}})))))
-
-(defn decode [bits params]
-  (let [sorted-params (sort-by first params)
-        partitioned-bits (->> params
-                              (reduce
-                               (fn [{:keys [bits retval]}, _]
-                                 {:bits (bit-shift-right bits 8)
-                                  :retval (conj retval (bit-and bits 0xff))})
-                               {:bits bits :retval []})
-                              :retval
-                              reverse)]
-    (into {} (map (fn [[k v] bits]
-                    (let [min (:min v)
-                          max (:max v)]
-                      [k (assoc v :value (Math.round (+ min (* (- max min) (/ bits 0xff)))))]))
-                  sorted-params
-                  partitioned-bits))))
-(deftest test-decode
-  (testing "it decodes bytes into params"
-    (is (= (decode 0x80 {:param1 {:min 0 :max 100}}) {:param1 {:min 0 :max 100 :value 50}})))
-  (testing "it works with several several params"
-    (is (= (decode 0x8040 {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})
-           {:param1 {:min 1 :max 11 :value 6} :param2 {:min 0 :max 100 :value 25}})))
-  (testing "it decodes always in the same order"
-    (is (= (decode 0xf022 {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
-           (decode 0xf022 {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
 
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
