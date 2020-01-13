@@ -76,21 +76,34 @@
     (is (= (decode "1000110001000010" {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
            (decode "1000110001000010"  {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
 
-(defn gen-mask [percentage individual]
-  (let [numbits (* 8 (count individual))
-        onesCount (Math.round (* percentage numbits))]
+(defn gen-mask [percentage numbits]
+  (let [onesCount (Math.round (* percentage numbits))]
     (clojure.string/join (sort-by #(Math.random)
                                   (concat
                                    (repeat onesCount "1")
                                    (repeat (- numbits onesCount) "0"))))))
 (deftest test-gen-mask
   (testing "it generates a random mask with the given percentage of ones"
-    (is (= (count (filter #(= % "1") (gen-mask 0.5 {:a :irrelevant :b :irrelevant}))) 8))
-    (is (= (count (filter #(= % "0") (gen-mask 0.5 {:a :irrelevant :b :irrelevant}))) 8))
-    (is (= (gen-mask 1 {:a :irrelevant :b :irrelevant}) "1111111111111111"))))
+    (is (= (count (filter #(= % "1") (gen-mask 0.5 (* 8 2)))) 8))
+    (is (= (count (filter #(= % "0") (gen-mask 0.5 (* 8 2)))) 8))
+    (is (= (gen-mask 1 (* 8 2)) "1111111111111111"))))
+
+(defn mutate [individual percentage]
+  (decode (encoded-op bit-xor (encode individual) (gen-mask percentage (count individual)))
+          individual))
+(deftest test-mutate
+  (let [p (fn [value min max] {:value value :min min :max max})
+        i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
+        i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9) :c (p 0.2 0.1 0.9) :d (p 0.4 0.1 0.9) :e (p 0.5 0.1 0.9) :f (p 0.5 0.1 0.9) :g (p 0.5 0.1 0.9)}]
+    (testing "it generates new individuals"
+      (is (kinda= (get-in (mutate i1 0) [:a :value]) 0.5))
+      (is (kinda= (get-in (mutate i1 0) [:b :value]) 0.2))
+      (is (not= (mutate i1 0.5) i1)))
+    (comment testing "it always generates a different value"
+      (is (not= (mutate i2 0.8) (mutate i2 0.8))))))
 
 (defn combine [individual1 individual2 percentage]
-  (let [mask (gen-mask percentage individual1)
+  (let [mask (gen-mask percentage (* 8 (count individual1)))
         reverse-mask (encoded-op (comp (partial bit-xor 0x01) bit-or) mask "0")]
     (decode (encoded-op bit-or
                         (encoded-op bit-and mask (encode individual1))
@@ -107,31 +120,51 @@
       (is (kinda= ((comp :value :b) (combine i1 i2 1)) 0.2)))))
 
 (defn breed [individual1 individual2]
-  (into {} (map #([% (combine individual1 individual2 0.5)]) (range 8))))
+  (->> [
+       (mutate individual1 0.5)
+       (mutate individual2 0.5)
+       (combine individual1 individual2 0.5)
+       (combine individual1 individual2 0.5)
+       (combine individual1 individual2 0.1)
+       (combine individual1 individual2 0.9)
+       (mutate individual1 0.1)
+       (mutate individual2 0.1)
+       ]
+      (map (fn [k v] [k v]) (range 8))
+      (into {})))
 (deftest test-breed
   (let [p (fn [value min max] {:value value :min min :max max})
         i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
         i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
-    (comment testing "it breeds new individuals"
-      (is (= (count (breed i1 i2)) 8)))))
+    (testing "it breeds new individuals"
+      (is (= (count (breed i1 i2)) 8)))
+    (testing "new individuals have the same params as breeders"
+      (is (every? (fn [[k v]] (= (keys v) [:a :b])) (breed i1 i2))))
+    (testing "new individuals are identified by a counter from zero to 7"
+      (is (= (range 8) (sort (keys (breed i1 i2)))))) ; perfect use-case for spec. Maybe one day.
+    (testing "none of the individuals are the same as the original ones"
+      (is (every? (fn [x] (not= (second x) i1)) (breed i1 i2))) ; I hate this test, but I couldn't do it better
+      (is (every? (fn [x] (not= (second x) i2)) (breed i1 i2))))))
 
 (defn hidrate [state configs]
   (->> state
        (map (fn [[k v]] [k (assoc (get configs k) :value v)]))
        (into {})))
 (deftest test-hidrate
-  (testing "it hidrates the given state with its min and max"
+  (testing "it hidrates the given individual with its min and max"
     (is (= (hidrate {:a 10 :b 1} {:a {:min 0 :max 10} :b {:min 0 :max 9}})
            {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}}))))
 
 (defn dehidrate [hidrated-state]
   (->> hidrated-state
-       (map (fn [[k v]] [k (:value v)]))
+       (map (fn [[k v]] [k (into {} (map (fn [[k v]] [k (:value v)]) v))]))
        (into {})))
 (deftest test-dehidrate
   (testing "it dehidrates the given hidrated state to be put back in the app state"
-    (is (= (dehidrate {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}})
-           {:a 10 :b 1}))))
+    (is (= (dehidrate {1 {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}}
+                       2 {:a {:min 0 :max 10 :value 4} :b {:min 0 :max 9 :value 2}}})
+           {1 {:a 10 :b 1}
+            2 {:a 4 :b 2}}))))
 
 (defn gen-individual
   ([params] (gen-individual params Math.random))
@@ -172,59 +205,34 @@
 
 (defonce app-state (atom (gen-state)))
 
-(defn gen-new-population2 [current-state]
+(defn gen-new-population [current-state]
   (let [[individual1 individual2] (take 2 (filter #(:selected (second %)) current-state))
-        new-state (dbgn (dehidrate (breed (hidrate (second individual1) state-params-ranges) (hidrate (second individual2) state-params-ranges))))]
+        new-state (dehidrate (breed (hidrate (dissoc (second individual1) :selected) state-params-ranges)
+                                    (hidrate (dissoc (second individual2) :selected) state-params-ranges)))]
     (->> current-state
          (map (fn [[k v]] [k (if (or (= (first individual1) k) (= (first individual2) k))
                                (assoc v :selected false)
                                (assoc (get new-state k) :selected false))]))
          (into {}))))
-(deftest test-gen-new-population2
-  (comment testing "it generates several configs"
-    (is (= (count (gen-new-population2 (gen-state))) 8)))
-  (comment testing "all configs have a sizeDiff param"
-    (is (every? (comp :sizeDiff second) (gen-new-population2 (gen-state)))))
-  (comment testing "all configs have a selected param"
-    (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population2 (gen-state)))))
+(deftest test-gen-new-population
   (let [sample (-> (gen-state)
                    (assoc-in  [3 :selected] true)
                    (assoc-in  [4 :selected] true)
                    (assoc-in  [5 :selected] true))]
-    (comment testing "it keeps only two of the selected previous ones"
+    (testing "it generates several configs"
+      (is (= (count (gen-new-population sample)) 8)))
+    (testing "all configs have a sizeDiff param"
+      (is (every? (comp :sizeDiff second) (gen-new-population sample))))
+    (testing "all configs have a selected param"
+      (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population sample))))
+    (testing "it keeps only two of the selected previous ones"
       (is (every? (fn [[k v]] (if (or (= 3 k) (= 4 k))
-                                (= v (assoc (get sample k) :selected false))
-                                (not= v (assoc (get sample k) :selected false))))
-                  (gen-new-population2 sample))))
-    (comment testing "it clears the :selected flag"
-      (is (not-any? (comp :selected second)
-                    (gen-new-population2 sample))))))
-
-
-(defn gen-new-population [current-state]
-  (let [new-state (gen-state)
-        [individual1 individual2] (take 2 (filter #(:selected (second %)) current-state))]
-    (->> current-state
-         (map (fn [[k v]] [k (if (:selected v)
-                               (assoc v :selected false)
-                               (get new-state k))]))
-         (into {}))))
-(deftest test-gen-new-population
-  (testing "it generates several configs"
-    (is (= (count (gen-new-population (gen-state))) 8)))
-  (testing "all configs have a sizeDiff param"
-    (is (every? (comp :sizeDiff second) (gen-new-population (gen-state)))))
-  (testing "all configs have a selected param"
-    (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population (gen-state)))))
-  (let [sample (assoc-in (gen-state) [3 :selected] true)]
-    (testing "it keeps only the previously selected ones"
-      (is (every? (fn [[k v]] (if (= 3 k)
                                 (= v (assoc (get sample k) :selected false))
                                 (not= v (assoc (get sample k) :selected false))))
                   (gen-new-population sample))))
     (testing "it clears the :selected flag"
       (is (not-any? (comp :selected second)
-                  (gen-new-population sample))))))
+                    (gen-new-population sample))))))
 
 (defn float= [a b]
   (< (Math.abs (- a b)) 0.0000001))
