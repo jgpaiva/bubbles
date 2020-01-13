@@ -107,13 +107,31 @@
       (is (kinda= ((comp :value :b) (combine i1 i2 1)) 0.2)))))
 
 (defn breed [individual1 individual2]
-  (map #(combine individual1 individual2 0.5) (range 8)))
+  (into {} (map #([% (combine individual1 individual2 0.5)]) (range 8))))
 (deftest test-breed
   (let [p (fn [value min max] {:value value :min min :max max})
         i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
         i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
-    (testing "it breeds new individuals"
+    (comment testing "it breeds new individuals"
       (is (= (count (breed i1 i2)) 8)))))
+
+(defn hidrate [state configs]
+  (->> state
+       (map (fn [[k v]] [k (assoc (get configs k) :value v)]))
+       (into {})))
+(deftest test-hidrate
+  (testing "it hidrates the given state with its min and max"
+    (is (= (hidrate {:a 10 :b 1} {:a {:min 0 :max 10} :b {:min 0 :max 9}})
+           {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}}))))
+
+(defn dehidrate [hidrated-state]
+  (->> hidrated-state
+       (map (fn [[k v]] [k (:value v)]))
+       (into {})))
+(deftest test-dehidrate
+  (testing "it dehidrates the given hidrated state to be put back in the app state"
+    (is (= (dehidrate {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}})
+           {:a 10 :b 1}))))
 
 (defn gen-individual
   ([params] (gen-individual params Math.random))
@@ -154,6 +172,35 @@
 
 (defonce app-state (atom (gen-state)))
 
+(defn gen-new-population2 [current-state]
+  (let [[individual1 individual2] (take 2 (filter #(:selected (second %)) current-state))
+        new-state (dbgn (dehidrate (breed (hidrate (second individual1) state-params-ranges) (hidrate (second individual2) state-params-ranges))))]
+    (->> current-state
+         (map (fn [[k v]] [k (if (or (= (first individual1) k) (= (first individual2) k))
+                               (assoc v :selected false)
+                               (assoc (get new-state k) :selected false))]))
+         (into {}))))
+(deftest test-gen-new-population2
+  (comment testing "it generates several configs"
+    (is (= (count (gen-new-population2 (gen-state))) 8)))
+  (comment testing "all configs have a sizeDiff param"
+    (is (every? (comp :sizeDiff second) (gen-new-population2 (gen-state)))))
+  (comment testing "all configs have a selected param"
+    (is (every? (fn [[k v]] (contains? v :selected)) (gen-new-population2 (gen-state)))))
+  (let [sample (-> (gen-state)
+                   (assoc-in  [3 :selected] true)
+                   (assoc-in  [4 :selected] true)
+                   (assoc-in  [5 :selected] true))]
+    (comment testing "it keeps only two of the selected previous ones"
+      (is (every? (fn [[k v]] (if (or (= 3 k) (= 4 k))
+                                (= v (assoc (get sample k) :selected false))
+                                (not= v (assoc (get sample k) :selected false))))
+                  (gen-new-population2 sample))))
+    (comment testing "it clears the :selected flag"
+      (is (not-any? (comp :selected second)
+                    (gen-new-population2 sample))))))
+
+
 (defn gen-new-population [current-state]
   (let [new-state (gen-state)
         [individual1 individual2] (take 2 (filter #(:selected (second %)) current-state))]
@@ -173,7 +220,7 @@
     (testing "it keeps only the previously selected ones"
       (is (every? (fn [[k v]] (if (= 3 k)
                                 (= v (assoc (get sample k) :selected false))
-                                (not= v (get sample k))))
+                                (not= v (assoc (get sample k) :selected false))))
                   (gen-new-population sample))))
     (testing "it clears the :selected flag"
       (is (not-any? (comp :selected second)
