@@ -4,14 +4,30 @@
     justify-content: center;
 }
 
+.flex-container p{
+    width: 800px;
+    background-color: #ffffd2;
+    padding: 10px;
+}
+
 body {
     margin: 0;
+    font-family: 'Open Sans', sans-serif;
 }
 
 button {
     width: 150px;
     height: 50px;
     margin: 0.5em 0em;
+}
+
+.sparklines-container {
+    display: flex;
+    justify-content: center;
+}
+
+.sparklines-container svg {
+    width: 100px;
 }
 
 .settings-container {
