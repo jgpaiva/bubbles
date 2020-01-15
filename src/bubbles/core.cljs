@@ -356,11 +356,31 @@
             :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))}]
    [:span nil (str param ":" (param @app-state))]])
 
-(defn update-partial-state [prefix item-to-update f]
-  (swap! app-state update-in [prefix item-to-update] f))
-
 (defn update-with-new-population [new-population]
   (swap! app-state #(identity new-population)))
+
+(defn onclick-svg
+  ([counter]
+   (onclick-svg app-state counter (fn [state] (update-with-new-population (gen-new-population state)))))
+  ([atom-to-update counter gen-population-callback]
+   (fn [e] (let [updated (swap! atom-to-update update-in [counter :selected] (fn [x] (not x)))]
+             (if (>= (count (filter (fn [[k v]] (:selected v)) updated)) 2)
+               (gen-population-callback @atom-to-update))))))
+(deftest test-onclick-svg
+  (testing "it toggles the selected state on one item"
+    (let [a (atom {0 {} 1 {} 3 {:selected false}})]
+      (is (= (do ((onclick-svg a 1 (fn [])) "dummy event") @a)
+             {0 {} 1 {:selected true} 3 {:selected false}})))
+    (let [a (atom {1 {} 3 {:selected true}})]
+      (is (= (do ((onclick-svg a 3 (fn [])) "dummy event") @a)
+             {1 {} 3 {:selected false}})))
+    (let [a (atom {0 {:selected false} 1 {:selected false} 3 {:selected true}})
+          called-with (atom nil)]
+      (testing "when two get selected, it generates new populations"
+        (is (= (do
+                 ((onclick-svg a 1 (fn [x] (swap! called-with (fn [_] x)))) "dummy event")
+                 @called-with)
+               {0 {:selected false} 1 {:selected true} 3 {:selected true}}))))))
 
 (defn draw-svg [{:keys [sizeDiff zoom targetOccupation hpoint hrange spoint srange lpoint lrange]}]
   [:svg {:viewBox (clojure.string/join " " [0 0 width height]) :width "100%" :height "100%"}
@@ -370,7 +390,7 @@
 
 (defn draw-svg-container [counter state]
   [:div {:class (str "svg-container" (if (:selected state) " selected"))
-         :onClick (fn [e] (update-partial-state counter :selected (fn [x] (not x))))}
+         :onClick (onclick-svg counter)}
    [draw-svg (dissoc state :selected)]
    [:div {:class (str "svg-container-overlay" (if (:selected state) " selected"))}
     [:img {:src "star.svg"}]]])
@@ -381,7 +401,10 @@
 (deftest test-sparkline-data
   (testing "it outputs a list of percentage sparklines"
     (is (= (sparkline-data {:a 10 :b 2 :selected true} {:a {:min 0 :max 10} :b {:min 0 :max 8}})
-           [1 (/ 1 4)]))))
+           [1 (/ 1 4)])))
+  (testing "it cleans up the selected flag from the items"
+    (is (= (count (sparkline-data {:a 10 :b 2 :selected true} {:a {:min 0 :max 10} :b {:min 0 :max 8}}))
+           2))))
 
 (defn draw-rect [el i x]
   [:rect {:key (hash (str "rect " el i x))
@@ -402,8 +425,11 @@
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
-    [:button {:onClick #(println @app-state)} "Dump state"]]
+    [:p nil "Select the two best ones to generate a new population. Sparklines at the top indicate the configs of all executions, and you should see them converge as you go through populations. It seems like at the moment mutations are still broken."]]
+   [:div {:class "flex-container"}
+    ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
+                                        ;[:button {:onClick #(println @app-state)} "Dump state"]
+    ]
    [:div
     [draw-sparkline @app-state]]
    [:div {:class "flex-container main-section"}
@@ -416,8 +442,8 @@
     [draw-svg-container 6 (get @app-state 6)]
     [draw-svg-container 7 (get @app-state 7)]]
    [:div {:class "flex-container"}
-    [:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
-    [:button {:onClick #(println @app-state)} "Dump state"]]
+    ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
+    [:button {:onClick #(println @app-state)} "Debug: Dump state"]]
    ])
 
 (reagent/render-component [main-render]

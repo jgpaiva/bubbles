@@ -4,8 +4,15 @@
     justify-content: center;
 }
 
+.flex-container p{
+    width: 800px;
+    background-color: #ffffd2;
+    padding: 10px;
+}
+
 body {
     margin: 0;
+    font-family: 'Open Sans', sans-serif;
 }
 
 button {
