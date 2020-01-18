@@ -406,26 +406,32 @@
     (is (= (count (sparkline-data {:a 10 :b 2 :selected true} {:a {:min 0 :max 10} :b {:min 0 :max 8}}))
            2))))
 
+(def sparkline-width 6)
+(def sparkline-height 40)
+
 (defn draw-rect [el i x]
   [:rect {:key (hash (str "rect " el i x))
-          :x (* i 6)
-          :y (- (* x 40))
-          :width 6
-          :height (* x 40)
+          :x (* i sparkline-width)
+          :y (- (* x sparkline-height))
+          :width sparkline-width
+          :height (* x sparkline-height)
           :style {:fill "rgb(200,200,200)"}}])
 
 (defn draw-sparkline [state]
   [:div {:class "sparklines-container"}
    (map (fn [[k state-item]]
-                 [:svg {:key (hash (str "sparkline " k)) :viewBox "0 -40 100 40" :width "100%" :height "100%"}
-                  (map-indexed (fn [i x] (draw-rect k i x))
-                               (sparkline-data state-item state-params-ranges))])
-               state)])
+          [:svg {:key (hash (str "sparkline " k))
+                 :viewBox (str "0 -" sparkline-height " " (* sparkline-width (count state)) " " sparkline-height)
+                 :width "100%"
+                 :height "100%"}
+           (map-indexed (fn [i x] (draw-rect k i x))
+                        (sparkline-data state-item state-params-ranges))])
+        state)])
 
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:p nil "Select the two best ones to generate a new population. Sparklines at the top indicate the configs of all executions, and you should see them converge as you go through populations. It seems like at the moment mutations are still broken."]]
+    [:p nil "Select the two best ones to generate a new population. Sparklines at the top summarize the configs of each individual, and you should see them converge as you go through populations. It seems like at the moment mutations are still broken."]]
    [:div {:class "flex-container"}
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
                                         ;[:button {:onClick #(println @app-state)} "Dump state"]

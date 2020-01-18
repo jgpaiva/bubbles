@@ -28,6 +28,7 @@ button {
 
 .sparklines-container svg {
     width: 100px;
+    margin: 0em 10px;
 }
 
 .settings-container {
