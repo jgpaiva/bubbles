@@ -4,6 +4,8 @@
             [debux.cs.core :as d :refer-macros [clog clogn dbg dbgn break]]
             [clojure.spec.alpha :as s]
             [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as prop]
+            [clojure.test.check :as stc]
             [clojure.spec.test.alpha :as stest]))
 
 (enable-console-print!)
@@ -19,21 +21,23 @@
                    (concat (reverse snd) (repeat "0")))))))
 (deftest test-encoded-op
   (testing "it applies a bitwise operation to two encoded objects"
-    (is (= (encoded-op bit-or "0001" "0010") "0011"))
-    (is (= (encoded-op bit-and "1001" "1010") "1000")))
+    (is (= (encoded-op bit-or "00000001" "00000010") "00000011"))
+    (is (= (encoded-op bit-and "00001001" "00001010") "00001000")))
   (testing "it always left-pads with zeroes to apply the operation"
-    (is (= (encoded-op bit-or "00001" "0010") "00011"))
-    (is (= (encoded-op bit-or "0001" "00010") "00011")))
+    (is (= (encoded-op bit-or "0000000000000001" "00000010") "0000000000000011"))
+    (is (= (encoded-op bit-or "00000001" "0000000000000010") "0000000000000011")))
   (testing "it passes quickcheck"
-    (let [results (stest/check `encoded-op)]
-      (is (= (:pass? (:clojure.spec.test.check/ret (first results))) true)
+    (let [results (stest/check `encoded-op {::stc/opts {:num-tests 100}})]
+      (is (= (:pass? (::stc/ret (first results))) true)
           results))))
 (s/def ::bitwise-function (s/with-gen
                             (s/fspec :args (s/cat :a int? :b int?) :ret int?)
-                            #(gen/return (fn [a b] (bit-or a b)))))
+                            #(gen/elements [bit-or bit-and bit-xor])))
+(def encoded-individual-gen (gen/fmap clojure.string/join (gen/bind (gen/fmap #(* 8 %) (gen/fmap Math.abs gen/small-integer))
+                                                                           #(gen/vector (gen/elements ["0" "1"]) %))))
 (s/def ::encoded-individual (s/with-gen
-                              (s/and string? #(re-matches #"^[01]+$" %))
-                              #(gen/fmap clojure.string/join (gen/vector (gen/elements ["0" "1"])))))
+                              (s/and string? #(re-matches #"^([01]{8})+$" %))
+                              (fn [_] encoded-individual-gen)))
 (s/fdef encoded-op
   :args (s/cat :op ::bitwise-function
                :fst ::encoded-individual
@@ -42,29 +46,39 @@
   :fn #(= (count (:ret %)) (max (count (-> % :args :fst)) (count (-> % :args :snd)))))
 (stest/instrument `encoded-op)
 
+(defn pad-to-8 [encoded]
+  (str (clojure.string/join (repeat (mod (- 8 (mod (count encoded) 8)) 8) "0")) encoded))
+(deftest test-pad-to-8
+  (testing "it pads with zeroes to a multiple of 8"
+    (is (= (pad-to-8 "001") "00000001")))
+  (testing "it passes quickcheck"
+    (let [results (stest/check `pad-to-8 {::stc/opts {:num-tests 100}})]
+      (is (= (:pass? (::stc/ret (first results))) true)
+          results))))
+(s/fdef pad-to-8
+  :args (s/cat :encoded (s/with-gen
+                          (s/and string? #(re-matches #"^[01]+$" %))
+                          (fn [_] (gen/fmap clojure.string/join (gen/bind gen/small-integer #(gen/vector (gen/elements ["0" "1"]) %))))))
+  :ret ::encoded-individual)
+
 (defn encode [params]
   (->> params
        (sort-by first)
        (map (fn [[param {:keys [::min ::max ::value]}]]
-              (encoded-op
-               bit-or
-               "00000000"
-               (.toString (let [retval (Math.round (* 256 (/ (- value min) (- max min))))]
-                            (if (>= retval 256)
-                              255
-                              retval))
-                          2))))
+              (pad-to-8 (.toString (Math.round (* 255 (/ (- value min) (- max min)))) 2))))
        (clojure.string/join)))
-;(s/def ::min (s/or :int int? :float float?))
-;(s/def ::max (s/or :int int? :float float?))
-;(s/def ::value (s/or :int int? :float float?))
-;(s/def ::param (s/keys :req [::min ::max ::value]))
-;(s/def ::individual-full-form (s/map-of keyword? ::param))
-;(s/fdef encode
-;  :args (s/cat :params ::individual-full-form)
-;  :ret string?
-; )
-;(stest/instrument `encode)
+(s/def ::positive-number (s/and number? #(>= % 0) #(< % 10000)))
+(s/def ::min ::positive-number)
+(s/def ::max ::positive-number)
+(s/def ::value ::positive-number)
+(s/def ::param (s/and (s/keys :req [::min ::max ::value])
+                      #(< (::min %) (::max %))
+                      #(<= (::min %) (::value %) (::max %))))
+(s/def ::individual-full-form (s/and (s/map-of keyword? ::param) #(> (count %) 0)))
+(s/fdef encode
+  :args (s/cat :params ::individual-full-form)
+  :ret ::encoded-individual)
+(stest/instrument `encode)
 (deftest test-encode
   (testing "it encodes params in bytes"
     (is (= (encode {:param1 {::min 0 ::max 100 ::value 50}}) "10000000")))
@@ -79,7 +93,10 @@
   (testing "it rounds down anything that's above 8 bits"
     (is (= (encode {:param1 {::min 0 ::max 100 ::value 100}})
            "11111111")))
-  )
+  (testing "it passes quickcheck"
+    (let [results (stest/check `encode {::stc/opts {:num-tests 100}})]
+      (is (= (:pass? (::stc/ret (first results))) true)
+          results))))
 
 (defn kinda= [a b]
   (< (Math.abs (- a b)) 0.1))
@@ -106,6 +123,14 @@
   (testing "it decodes always in the same order"
     (is (= (decode "1000110001000010" {:param1 {::min 0 ::max 100} :param2 {::min 0 ::max 100}})
            (decode "1000110001000010"  {:param2 {::min 0 ::max 100} :param1 {::min 0 ::max 100}})))))
+(s/def ::param-no-value (s/and (s/keys :req [::min ::max])
+                               #(< (::min %) (::max %))))
+(s/def ::individual-no-value (s/and (s/map-of keyword? ::param-no-value) #(> (count %) 0)))
+(s/fdef decode
+  :args (s/and (s/cat :encoded ::encoded-individual :params ::individual-no-value)
+               #(= (* 8 (count (:params %))) (count (:encoded %))))
+  :ret ::individual-full-form)
+(stest/instrument `decode)
 
 (defn gen-mask [percentage numbits]
   (let [onesCount (Math.round (* percentage numbits))]
@@ -120,7 +145,7 @@
     (is (= (gen-mask 1 (* 8 2)) "1111111111111111"))))
 
 (defn mutate [individual percentage]
-  (decode (encoded-op bit-xor (encode individual) (gen-mask percentage (count individual)))
+  (decode (encoded-op bit-xor (encode individual) (gen-mask percentage (count (encode individual))))
           individual))
 (deftest test-mutate
   (let [p (fn [value min max] {::value value ::min min ::max max})
@@ -135,7 +160,7 @@
 
 (defn combine [individual1 individual2 percentage]
   (let [mask (gen-mask percentage (* 8 (count individual1)))
-        reverse-mask (encoded-op (comp (partial bit-xor 0x01) bit-or) mask "0")]
+        reverse-mask (encoded-op (comp (partial bit-xor 0x01) bit-or) mask (clojure.string/join (repeat (count mask) "0")))]
     (decode (encoded-op bit-or
                         (encoded-op bit-and mask (encode individual1))
                         (encoded-op bit-and reverse-mask (encode individual2)))
@@ -462,7 +487,7 @@
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:p nil "Select the two you like the most to seed a new generation. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations. It seems like at the moment mutations are still broken."]]
+    [:p nil "Select the two images you like the most to seed a new generation. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations."]]
    [:div {:class "flex-container"}
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
                                         ;[:button {:onClick #(println @app-state)} "Dump state"]
