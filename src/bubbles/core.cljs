@@ -1,7 +1,10 @@
 (ns bubbles.core
   (:require [reagent.core :as reagent :refer [atom]]
             [cljs.test :refer-macros [deftest is testing run-tests]]
-            [debux.cs.core :as d :refer-macros [clog clogn dbg dbgn break]]))
+            [debux.cs.core :as d :refer-macros [clog clogn dbg dbgn break]]
+            [clojure.spec.alpha :as s]
+            [clojure.test.check.generators :as gen]
+            [clojure.spec.test.alpha :as stest]))
 
 (enable-console-print!)
 
@@ -20,12 +23,29 @@
     (is (= (encoded-op bit-and "1001" "1010") "1000")))
   (testing "it always left-pads with zeroes to apply the operation"
     (is (= (encoded-op bit-or "00001" "0010") "00011"))
-    (is (= (encoded-op bit-or "0001" "00010") "00011"))))
+    (is (= (encoded-op bit-or "0001" "00010") "00011")))
+  (testing "it passes quickcheck"
+    (let [results (stest/check `encoded-op)]
+      (is (= (:pass? (:clojure.spec.test.check/ret (first results))) true)
+          results))))
+(s/def ::bitwise-function (s/with-gen
+                            (s/fspec :args (s/cat :a int? :b int?) :ret int?)
+                            #(gen/return (fn [a b] (bit-or a b)))))
+(s/def ::encoded-individual (s/with-gen
+                              (s/and string? #(re-matches #"^[01]+$" %))
+                              #(gen/fmap clojure.string/join (gen/vector (gen/elements ["0" "1"])))))
+(s/fdef encoded-op
+  :args (s/cat :op ::bitwise-function
+               :fst ::encoded-individual
+               :snd ::encoded-individual)
+  :ret ::encoded-individual
+  :fn #(= (count (:ret %)) (max (count (-> % :args :fst)) (count (-> % :args :snd)))))
+(stest/instrument `encoded-op)
 
 (defn encode [params]
   (->> params
        (sort-by first)
-       (map (fn [[param {:keys [min max value]}]]
+       (map (fn [[param {:keys [::min ::max ::value]}]]
               (encoded-op
                bit-or
                "00000000"
@@ -35,20 +55,31 @@
                               retval))
                           2))))
        (clojure.string/join)))
+;(s/def ::min (s/or :int int? :float float?))
+;(s/def ::max (s/or :int int? :float float?))
+;(s/def ::value (s/or :int int? :float float?))
+;(s/def ::param (s/keys :req [::min ::max ::value]))
+;(s/def ::individual-full-form (s/map-of keyword? ::param))
+;(s/fdef encode
+;  :args (s/cat :params ::individual-full-form)
+;  :ret string?
+; )
+;(stest/instrument `encode)
 (deftest test-encode
   (testing "it encodes params in bytes"
-    (is (= (encode {:param1 {:min 0 :max 100 :value 50}}) "10000000")))
+    (is (= (encode {:param1 {::min 0 ::max 100 ::value 50}}) "10000000")))
   (testing "it encodes several params in bytes"
-    (is (= (encode {:param1 {:min 1 :max 11 :value 6}
-                    :param2 {:min 0 :max 100 :value 25}}) "1000000001000000")))
+    (is (= (encode {:param1 {::min 1 ::max 11 ::value 6}
+                    :param2 {::min 0 ::max 100 ::value 25}}) "1000000001000000")))
   (testing "it encodes always in the same order"
-    (is (= (encode {:param1 {:min 0 :max 100 :value 50}
-                    :param2 {:min 0 :max 100 :value 25}})
-           (encode {:param2 {:min 0 :max 100 :value 25}
-                    :param1 {:min 0 :max 100 :value 50}}))))
+    (is (= (encode {:param1 {::min 0 ::max 100 ::value 50}
+                    :param2 {::min 0 ::max 100 ::value 25}})
+           (encode {:param2 {::min 0 ::max 100 ::value 25}
+                    :param1 {::min 0 ::max 100 ::value 50}}))))
   (testing "it rounds down anything that's above 8 bits"
-    (is (= (encode {:param1 {:min 0 :max 100 :value 100}})
-           "11111111"))))
+    (is (= (encode {:param1 {::min 0 ::max 100 ::value 100}})
+           "11111111")))
+  )
 
 (defn kinda= [a b]
   (< (Math.abs (- a b)) 0.1))
@@ -57,24 +88,24 @@
   (let [sorted-params (sort-by first params)
         partitioned-bits (map #(js/parseInt (clojure.string/join %) 2) (partition 8 encoded))]
     (into {} (map (fn [[k v] bits]
-                    (let [min (:min v) max (:max v)]
-                      [k (assoc v :value (+ min (* (- max min) (/ bits 0xff))))]))
+                    (let [min (::min v) max (::max v)]
+                      [k (assoc v ::value (+ min (* (- max min) (/ bits 0xff))))]))
                   sorted-params
                   partitioned-bits))))
 (deftest test-decode
   (testing "it decodes encoded individuals into params"
-    (is (= (decode "00000000" {:param1 {:min 0 :max 100}}) {:param1 {:min 0 :max 100 :value 0}})))
+    (is (= (decode "00000000" {:param1 {::min 0 ::max 100}}) {:param1 {::min 0 ::max 100 ::value 0}})))
   (testing "it isn't very precise"
-    (is (kinda= ((comp :value :param1) (decode "10000000" {:param1 {:min 0 :max 10}})) 5))
-    (is (not= ((comp :value :param1) (decode "10000000" {:param1 {:min 0 :max 100}})) 50)))
+    (is (kinda= ((comp ::value :param1) (decode "10000000" {:param1 {::min 0 ::max 10}})) 5))
+    (is (not= ((comp ::value :param1) (decode "10000000" {:param1 {::min 0 ::max 100}})) 50)))
   (testing "it works with several several params"
-    (is (kinda= ((comp :value :p1) (decode "1000000001000000" {:p1 {:min 1 :max 11} :p2 {:min 0 :max 100}}))
+    (is (kinda= ((comp ::value :p1) (decode "1000000001000000" {:p1 {::min 1 ::max 11} :p2 {::min 0 ::max 100}}))
                 6))
-    (is (kinda= ((comp :value :p2) (decode "1000000001000000" {:p1 {:min 1 :max 11} :p2 {:min 0 :max 100}}))
+    (is (kinda= ((comp ::value :p2) (decode "1000000001000000" {:p1 {::min 1 ::max 11} :p2 {::min 0 ::max 100}}))
                 25)))
   (testing "it decodes always in the same order"
-    (is (= (decode "1000110001000010" {:param1 {:min 0 :max 100} :param2 {:min 0 :max 100}})
-           (decode "1000110001000010"  {:param2 {:min 0 :max 100} :param1 {:min 0 :max 100}})))))
+    (is (= (decode "1000110001000010" {:param1 {::min 0 ::max 100} :param2 {::min 0 ::max 100}})
+           (decode "1000110001000010"  {:param2 {::min 0 ::max 100} :param1 {::min 0 ::max 100}})))))
 
 (defn gen-mask [percentage numbits]
   (let [onesCount (Math.round (* percentage numbits))]
@@ -92,12 +123,12 @@
   (decode (encoded-op bit-xor (encode individual) (gen-mask percentage (count individual)))
           individual))
 (deftest test-mutate
-  (let [p (fn [value min max] {:value value :min min :max max})
+  (let [p (fn [value min max] {::value value ::min min ::max max})
         i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
         i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9) :c (p 0.2 0.1 0.9) :d (p 0.4 0.1 0.9) :e (p 0.5 0.1 0.9) :f (p 0.5 0.1 0.9) :g (p 0.5 0.1 0.9)}]
     (testing "it generates new individuals"
-      (is (kinda= (get-in (mutate i1 0) [:a :value]) 0.5))
-      (is (kinda= (get-in (mutate i1 0) [:b :value]) 0.2))
+      (is (kinda= (get-in (mutate i1 0) [:a ::value]) 0.5))
+      (is (kinda= (get-in (mutate i1 0) [:b ::value]) 0.2))
       (is (not= (mutate i1 0.5) i1)))
     (comment testing "it always generates a different value"
              (is (not= (mutate i2 0.8) (mutate i2 0.8))))))
@@ -110,14 +141,14 @@
                         (encoded-op bit-and reverse-mask (encode individual2)))
             individual1)))
 (deftest test-combine
-  (let [p (fn [value min max] {:value value :min min :max max})
+  (let [p (fn [value min max] {::value value ::min min ::max max})
         i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
         i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
     (testing "it combines two individuals taking a percentage of bits from individual 1 and getting the remaining from individual 2"
-      (is (kinda= ((comp :value :a) (combine i1 i1 0.5)) 0.5))
-      (is (kinda= ((comp :value :b) (combine i1 i1 0.5)) 0.2))
-      (is (kinda= ((comp :value :a) (combine i1 i2 1)) 0.5))
-      (is (kinda= ((comp :value :b) (combine i1 i2 1)) 0.2)))))
+      (is (kinda= ((comp ::value :a) (combine i1 i1 0.5)) 0.5))
+      (is (kinda= ((comp ::value :b) (combine i1 i1 0.5)) 0.2))
+      (is (kinda= ((comp ::value :a) (combine i1 i2 1)) 0.5))
+      (is (kinda= ((comp ::value :b) (combine i1 i2 1)) 0.2)))))
 
 (defn breed [individual1 individual2]
   (->> [
@@ -133,7 +164,7 @@
        (map (fn [k v] [k v]) (range 8))
        (into {})))
 (deftest test-breed
-  (let [p (fn [value min max] {:value value :min min :max max})
+  (let [p (fn [value min max] {::value value ::min min ::max max})
         i1 {:a (p 0.5 0.1 0.9) :b (p 0.2 0.1 0.9)}
         i2 {:a (p 0.9 0.1 0.9) :b (p 0.1 0.1 0.9)}]
     (testing "it breeds new individuals"
@@ -148,50 +179,50 @@
 
 (defn hidrate [state configs]
   (->> state
-       (map (fn [[k v]] [k (assoc (get configs k) :value v)]))
+       (map (fn [[k v]] [k (assoc (get configs k) ::value v)]))
        (into {})))
 (deftest test-hidrate
   (testing "it hidrates the given individual with its min and max"
-    (is (= (hidrate {:a 10 :b 1} {:a {:min 0 :max 10} :b {:min 0 :max 9}})
-           {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}}))))
+    (is (= (hidrate {:a 10 :b 1} {:a {::min 0 ::max 10} :b {::min 0 ::max 9}})
+           {:a {::min 0 ::max 10 ::value 10} :b {::min 0 ::max 9 ::value 1}}))))
 
 (defn dehidrate [hidrated-state]
   (->> hidrated-state
-       (map (fn [[k v]] [k (into {} (map (fn [[k v]] [k (:value v)]) v))]))
+       (map (fn [[k v]] [k (into {} (map (fn [[k v]] [k (::value v)]) v))]))
        (into {})))
 (deftest test-dehidrate
   (testing "it dehidrates the given hidrated state to be put back in the app state"
-    (is (= (dehidrate {1 {:a {:min 0 :max 10 :value 10} :b {:min 0 :max 9 :value 1}}
-                       2 {:a {:min 0 :max 10 :value 4} :b {:min 0 :max 9 :value 2}}})
+    (is (= (dehidrate {1 {:a {::min 0 ::max 10 ::value 10} :b {::min 0 ::max 9 ::value 1}}
+                       2 {:a {::min 0 ::max 10 ::value 4} :b {::min 0 ::max 9 ::value 2}}})
            {1 {:a 10 :b 1}
             2 {:a 4 :b 2}}))))
 
 (defn gen-individual
   ([params] (gen-individual params Math.random))
   ([params random] (->> params
-                        (map (fn [[k v]] [k (assoc v :value (+ (:min v) (* (random) (- (:max v) (:min v)))))]))
+                        (map (fn [[k v]] [k (assoc v ::value (+ (::min v) (* (random) (- (::max v) (::min v)))))]))
                         (into {}))))
 (deftest test-gen-individual
   (testing "it generates random individuals given params"
-    (is (every? (fn [[k v]] (:value v)) (gen-individual {:param1 {:min 1 :max 11} :param2 {:min 0 :max 100}})))))
+    (is (every? (fn [[k v]] (::value v)) (gen-individual {:param1 {::min 1 ::max 11} :param2 {::min 0 ::max 100}})))))
 
 (def state-params-ranges
   {
-   :sizeDiff {:min 1 :max 30}
-   :zoom {:min 1 :max 7}
-   :targetOccupation {:min 0.01 :max 0.40}
-   :hpoint {:min 0 :max 360}
-   :hrange {:min 0 :max 360}
-   :spoint {:min 0 :max 99} ; tricky: can't use 100, because it wraps to 0
-   :srange {:min 0 :max 99}
-   :lpoint {:min 0 :max 99}
-   :lrange {:min 0 :max 99}
+   :sizeDiff {::min 1 ::max 30}
+   :zoom {::min 1 ::max 7}
+   :targetOccupation {::min 0.01 ::max 0.40}
+   :hpoint {::min 0 ::max 360}
+   :hrange {::min 0 ::max 360}
+   :spoint {::min 0 ::max 99} ; tricky: can't use 100, because it wraps to 0
+   :srange {::min 0 ::max 99}
+   :lpoint {::min 0 ::max 99}
+   :lrange {::min 0 ::max 99}
    })
 
 (defn gen-state []
   (into {} (map (fn [x] [x (->> state-params-ranges
                                 (gen-individual)
-                                (map (fn [[k v]] [k (:value v)]))
+                                (map (fn [[k v]] [k (::value v)]))
                                 (into {})
                                 (#(assoc % :selected false)))])
                 (range 8))))
@@ -352,7 +383,7 @@
 
 (defn draw-range [param min max step converter-function]
   [:div {:class "range-container"}
-   [:input {:type "range" :min min :max max :step step :value (param @app-state) :key (hash (str "range " param)) :class "slider"
+   [:input {:type "range" ::min min ::max max :step step ::value (param @app-state) :key (hash (str "range " param)) :class "slider"
             :onChange (fn [e] (swap! app-state update-in [param] (fn [_] (converter-function (-> e .-target .-value)))))}]
    [:span nil (str param ":" (param @app-state))]])
 
@@ -396,14 +427,14 @@
     [:img {:src "star.svg"}]]])
 
 (defn sparkline-data [state configs]
-  (map (fn [[k v]] (/ (:value v) (- (:max v) (:min v))))
+  (map (fn [[k v]] (/ (::value v) (- (::max v) (::min v))))
        (sort (hidrate (filter (fn [[k v]] (not= k :selected)) state) configs))))
 (deftest test-sparkline-data
   (testing "it outputs a list of percentage sparklines"
-    (is (= (sparkline-data {:a 10 :b 2 :selected true} {:a {:min 0 :max 10} :b {:min 0 :max 8}})
+    (is (= (sparkline-data {:a 10 :b 2 :selected true} {:a {::min 0 ::max 10} :b {::min 0 ::max 8}})
            [1 (/ 1 4)])))
   (testing "it cleans up the selected flag from the items"
-    (is (= (count (sparkline-data {:a 10 :b 2 :selected true} {:a {:min 0 :max 10} :b {:min 0 :max 8}}))
+    (is (= (count (sparkline-data {:a 10 :b 2 :selected true} {:a {::min 0 ::max 10} :b {::min 0 ::max 8}}))
            2))))
 
 (def sparkline-width 6)
@@ -431,7 +462,7 @@
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:p nil "Select the two best ones to generate a new population. Sparklines at the top summarize the configs of each individual, and you should see them converge as you go through populations. It seems like at the moment mutations are still broken."]]
+    [:p nil "Select the two you like the most to seed a new generation. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations. It seems like at the moment mutations are still broken."]]
    [:div {:class "flex-container"}
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
                                         ;[:button {:onClick #(println @app-state)} "Dump state"]
