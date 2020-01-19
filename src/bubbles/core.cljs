@@ -30,9 +30,7 @@
     (let [results (stest/check `encoded-op {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
-(s/def ::bitwise-function (s/with-gen
-                            (s/fspec :args (s/cat :a int? :b int?) :ret int?)
-                            #(gen/elements [bit-or bit-and bit-xor])))
+(s/def ::bitwise-function #{bit-or bit-and bit-xor})
 (def encoded-individual-gen (gen/fmap clojure.string/join (gen/bind (gen/fmap #(* 8 %) (gen/fmap Math.abs gen/small-integer))
                                                                            #(gen/vector (gen/elements ["0" "1"]) %))))
 (s/def ::encoded-individual (s/with-gen
@@ -160,7 +158,7 @@
 
 (defn combine [individual1 individual2 percentage]
   (let [mask (gen-mask percentage (* 8 (count individual1)))
-        reverse-mask (encoded-op (comp (partial bit-xor 0x01) bit-or) mask (clojure.string/join (repeat (count mask) "0")))]
+        reverse-mask (encoded-op bit-xor mask (clojure.string/join (repeat (count mask) "1")))]
     (decode (encoded-op bit-or
                         (encoded-op bit-and mask (encode individual1))
                         (encoded-op bit-and reverse-mask (encode individual2)))
