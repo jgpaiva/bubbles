@@ -13,6 +13,27 @@
 (def width 400)
 (def height 400)
 
+(s/def ::bitwise-function #{bit-or bit-and bit-xor})
+(def multiple-of-8-gen (gen/fmap #(* 8 %) (gen/fmap Math.abs gen/small-integer)))
+(def encoded-individual-gen (gen/fmap clojure.string/join
+                                      (gen/bind multiple-of-8-gen #(gen/vector (gen/elements ["0" "1"]) %))))
+(s/def ::encoded-individual (s/with-gen
+                              (s/and string? #(re-matches #"^([01]{8})+$" %))
+                              (fn [_] encoded-individual-gen)))
+(s/def ::zero-to-one (s/with-gen (s/and number? #(<= 0 % 1)) #(gen/double* {:min 0 :max 1})))
+(s/def ::multiple-of-8 (s/with-gen (s/and int? #(= 0 (mod % 8))) (fn [_] multiple-of-8-gen)))
+(s/def ::positive-number (s/and number? #(>= % 0) #(< % 10000)))
+(s/def ::min ::positive-number)
+(s/def ::max ::positive-number)
+(s/def ::value ::positive-number)
+(s/def ::param (s/and (s/keys :req [::min ::max ::value])
+                      #(< (::min %) (::max %))
+                      #(<= (::min %) (::value %) (::max %)))) ; TODO: this could be so much better with a custom gen
+(s/def ::individual-full-form (s/and (s/map-of keyword? ::param) #(> (count %) 0)))
+(s/def ::param-no-value (s/and (s/keys :req [::min ::max])
+                               #(< (::min %) (::max %))))
+(s/def ::individual-no-value (s/and (s/map-of keyword? ::param-no-value) #(> (count %) 0)))
+
 (defn encoded-op [op fst snd]
   (let [[fst snd] (if (>= (count fst) (count snd)) [fst snd] [snd fst])]
     (clojure.string/join
@@ -30,12 +51,6 @@
     (let [results (stest/check `encoded-op {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
-(s/def ::bitwise-function #{bit-or bit-and bit-xor})
-(def encoded-individual-gen (gen/fmap clojure.string/join (gen/bind (gen/fmap #(* 8 %) (gen/fmap Math.abs gen/small-integer))
-                                                                           #(gen/vector (gen/elements ["0" "1"]) %))))
-(s/def ::encoded-individual (s/with-gen
-                              (s/and string? #(re-matches #"^([01]{8})+$" %))
-                              (fn [_] encoded-individual-gen)))
 (s/fdef encoded-op
   :args (s/cat :op ::bitwise-function
                :fst ::encoded-individual
@@ -65,18 +80,6 @@
        (map (fn [[param {:keys [::min ::max ::value]}]]
               (pad-to-8 (.toString (Math.round (* 255 (/ (- value min) (- max min)))) 2))))
        (clojure.string/join)))
-(s/def ::positive-number (s/and number? #(>= % 0) #(< % 10000)))
-(s/def ::min ::positive-number)
-(s/def ::max ::positive-number)
-(s/def ::value ::positive-number)
-(s/def ::param (s/and (s/keys :req [::min ::max ::value])
-                      #(< (::min %) (::max %))
-                      #(<= (::min %) (::value %) (::max %))))
-(s/def ::individual-full-form (s/and (s/map-of keyword? ::param) #(> (count %) 0)))
-(s/fdef encode
-  :args (s/cat :params ::individual-full-form)
-  :ret ::encoded-individual)
-(stest/instrument `encode)
 (deftest test-encode
   (testing "it encodes params in bytes"
     (is (= (encode {:param1 {::min 0 ::max 100 ::value 50}}) "10000000")))
@@ -95,6 +98,10 @@
     (let [results (stest/check `encode {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
+(s/fdef encode
+  :args (s/cat :params ::individual-full-form)
+  :ret ::encoded-individual)
+(stest/instrument `encode)
 
 (defn kinda= [a b]
   (< (Math.abs (- a b)) 0.1))
@@ -121,9 +128,6 @@
   (testing "it decodes always in the same order"
     (is (= (decode "1000110001000010" {:param1 {::min 0 ::max 100} :param2 {::min 0 ::max 100}})
            (decode "1000110001000010"  {:param2 {::min 0 ::max 100} :param1 {::min 0 ::max 100}})))))
-(s/def ::param-no-value (s/and (s/keys :req [::min ::max])
-                               #(< (::min %) (::max %))))
-(s/def ::individual-no-value (s/and (s/map-of keyword? ::param-no-value) #(> (count %) 0)))
 (s/fdef decode
   :args (s/and (s/cat :encoded ::encoded-individual :params ::individual-no-value)
                #(= (* 8 (count (:params %))) (count (:encoded %))))
@@ -140,7 +144,16 @@
   (testing "it generates a random mask with the given percentage of ones"
     (is (= (count (filter #(= % "1") (gen-mask 0.5 (* 8 2)))) 8))
     (is (= (count (filter #(= % "0") (gen-mask 0.5 (* 8 2)))) 8))
-    (is (= (gen-mask 1 (* 8 2)) "1111111111111111"))))
+    (is (= (gen-mask 1 (* 8 2)) "1111111111111111")))
+  (testing "it passes quickcheck"
+    (let [results (stest/check `gen-mask {::stc/opts {:num-tests 100}})]
+      (is (= (:pass? (::stc/ret (first results))) true)
+          results))))
+(s/fdef gen-mask
+  :args (s/cat :percentage ::zero-to-one :numbits (s/and ::multiple-of-8 pos?))
+  :ret ::encoded-individual
+  :fn #(= (-> % :args :numbits) (count (:ret %))))
+(stest/instrument `gen-mask)
 
 (defn mutate [individual percentage]
   (decode (encoded-op bit-xor (encode individual) (gen-mask percentage (count (encode individual))))
@@ -154,7 +167,15 @@
       (is (kinda= (get-in (mutate i1 0) [:b ::value]) 0.2))
       (is (not= (mutate i1 0.5) i1)))
     (comment testing "it always generates a different value"
-             (is (not= (mutate i2 0.8) (mutate i2 0.8))))))
+             (is (not= (mutate i2 0.8) (mutate i2 0.8))))
+    (testing "it passes quickcheck"
+      (let [results (stest/check `mutate {::stc/opts {:num-tests 100}})]
+        (is (= (:pass? (::stc/ret (first results))) true)
+            results)))))
+(s/fdef mutate
+  :args (s/cat :individual ::individual-full-form :percentage ::zero-to-one)
+  :ret ::individual-full-form)
+(stest/instrument `mutate)
 
 (defn combine [individual1 individual2 percentage]
   (let [mask (gen-mask percentage (* 8 (count individual1)))
