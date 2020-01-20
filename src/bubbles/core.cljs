@@ -26,9 +26,15 @@
 (s/def ::min ::positive-number)
 (s/def ::max ::positive-number)
 (s/def ::value ::positive-number)
-(s/def ::param (s/and (s/keys :req [::min ::max ::value])
-                      #(< (::min %) (::max %))
-                      #(<= (::min %) (::value %) (::max %)))) ; TODO: this could be so much better with a custom gen
+(def param-gen (gen/let [min (gen/such-that #(not (js/isNaN %)) (gen/double* {:min 0 :max 1000}))
+                         max (gen/such-that #(not (js/isNaN %)) (gen/double* {:min (+ 1 min) :max (+ min 1000)}))
+                         value (gen/such-that #(not (js/isNaN %)) (gen/double* {:min min :max max}))]
+                 (gen/return {::min min ::max max ::value value})))
+(s/def ::param (s/with-gen
+                 (s/and (s/keys :req [::min ::max ::value])
+                        #(< (::min %) (::max %))
+                        #(<= (::min %) (::value %) (::max %)))
+                 (fn [_] param-gen)))
 (s/def ::individual-full-form (s/and (s/map-of keyword? ::param) #(> (count %) 0)))
 (s/def ::param-no-value (s/and (s/keys :req [::min ::max])
                                #(< (::min %) (::max %))))
