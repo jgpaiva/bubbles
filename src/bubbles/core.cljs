@@ -199,7 +199,21 @@
       (is (kinda= ((comp ::value :a) (combine i1 i1 0.5)) 0.5))
       (is (kinda= ((comp ::value :b) (combine i1 i1 0.5)) 0.2))
       (is (kinda= ((comp ::value :a) (combine i1 i2 1)) 0.5))
-      (is (kinda= ((comp ::value :b) (combine i1 i2 1)) 0.2)))))
+      (is (kinda= ((comp ::value :b) (combine i1 i2 1)) 0.2)))
+    (testing "it passes quickcheck"
+      (let [results (stest/check `combine {::stc/opts {:num-tests 100}})]
+        (is (= (:pass? (::stc/ret (first results))) true)
+            results)))))
+(s/fdef combine
+  :args (s/with-gen (s/and (s/cat :individual1 ::individual-full-form :individual2 ::individual-full-form :percentage ::zero-to-one)
+                           #(= (keys (:individual1 %)) (keys (:individual2 %))))
+          #(gen/let [kwords (gen/not-empty (gen/vector gen/keyword))
+                     values1 (gen/vector param-gen (count kwords))
+                     values2 (gen/vector param-gen (count kwords))
+                     percentage (gen/double* {:min 0 :max 1})]
+             (gen/return (list (into {} (map vector kwords values1)) (into {} (map vector kwords values2)) percentage))))
+  :ret ::individual-full-form)
+(stest/instrument `combine)
 
 (defn breed [individual1 individual2]
   (->> [
