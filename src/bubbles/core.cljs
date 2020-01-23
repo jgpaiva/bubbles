@@ -26,9 +26,10 @@
 (s/def ::min ::positive-number)
 (s/def ::max ::positive-number)
 (s/def ::value ::positive-number)
-(def param-gen (gen/let [min (gen/such-that #(not (js/isNaN %)) (gen/double* {:min 0 :max 1000}))
-                         max (gen/such-that #(not (js/isNaN %)) (gen/double* {:min (+ 1 min) :max (+ min 1000)}))
-                         value (gen/such-that #(not (js/isNaN %)) (gen/double* {:min min :max max}))]
+(defn double-in [min max] (gen/such-that #(not (js/isNaN %)) (gen/double* {:min min :max max})))
+(def param-gen (gen/let [min (double-in 0 10000)
+                         max (double-in (+ 1 min) (+ min 1000))
+                         value (double-in min max)]
                  (gen/return {::min min ::max max ::value value})))
 (s/def ::param (s/with-gen
                  (s/and (s/keys :req [::min ::max ::value])
@@ -71,8 +72,8 @@
   (testing "it pads with zeroes to a multiple of 8"
     (is (= (pad-to-8 "001") "00000001")))
   (testing "it passes quickcheck"
-    (let [results (stest/check `pad-to-8 {::stc/opts {:num-tests 100}})]
-      (is (= (:pass? (::stc/ret (first results))) true)
+    (let [results (stest/check `pad-to-8)]
+      (is (= (:pass? (:clojure.spec.test.check/ret (first results))) true)
           results))))
 (s/fdef pad-to-8
   :args (s/cat :encoded (s/with-gen
