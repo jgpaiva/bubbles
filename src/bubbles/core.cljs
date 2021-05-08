@@ -527,7 +527,7 @@
 (defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:p nil "Select the two images you like the most to seed a new generation. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations."]]
+   [:p nil "Pick your two favourite individuals, and bubbles will create a new population based on mutations of those two. You can do this forever, or until the model has converged. To start over, refresh the page. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations."]]
    [:div {:class "flex-container"}
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
                                         ;[:button {:onClick #(println @app-state)} "Dump state"]
