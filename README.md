@@ -4,7 +4,9 @@ Generative art using [clojurescript](https://clojurescript.org/) and [reagent](h
 
 The goal of this project was to test whether generative art could be created by creative dummies like myself. If you lack artistic sense like I do, you can't come up with good mixes of colors, spatial distributions of elements, or distributions of size of elements. Bubbles does that for you. Just pick your two favourite individuals, and bubbles will create a new population based on mutations of those two. You can do this forever, or until the model has converged.
 
-Check the demo at https://jgpaiva.github.io/bubbles
+# Demo
+
+Try the online demo at https://jgpaiva.github.io/bubbles
 
 ## Local development
 
