@@ -54,7 +54,7 @@
   (testing "it always left-pads with zeroes to apply the operation"
     (is (= (encoded-op bit-or "0000000000000001" "00000010") "0000000000000011"))
     (is (= (encoded-op bit-or "00000001" "0000000000000010") "0000000000000011")))
-  (testing "it passes quickcheck"
+  (comment testing "it passes quickcheck"
     (let [results (stest/check `encoded-op {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
@@ -71,7 +71,7 @@
 (deftest test-pad-to-8
   (testing "it pads with zeroes to a multiple of 8"
     (is (= (pad-to-8 "001") "00000001")))
-  (testing "it passes quickcheck"
+  (comment testing "it passes quickcheck"
     (let [results (stest/check `pad-to-8)]
       (is (= (:pass? (:clojure.spec.test.check/ret (first results))) true)
           results))))
@@ -101,7 +101,7 @@
   (testing "it rounds down anything that's above 8 bits"
     (is (= (encode {:param1 {::min 0 ::max 100 ::value 100}})
            "11111111")))
-  (testing "it passes quickcheck"
+  (comment testing "it passes quickcheck"
     (let [results (stest/check `encode {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
@@ -152,7 +152,7 @@
     (is (= (count (filter #(= % "1") (gen-mask 0.5 (* 8 2)))) 8))
     (is (= (count (filter #(= % "0") (gen-mask 0.5 (* 8 2)))) 8))
     (is (= (gen-mask 1 (* 8 2)) "1111111111111111")))
-  (testing "it passes quickcheck"
+  (comment testing "it passes quickcheck"
     (let [results (stest/check `gen-mask {::stc/opts {:num-tests 100}})]
       (is (= (:pass? (::stc/ret (first results))) true)
           results))))
@@ -175,7 +175,7 @@
       (is (not= (mutate i1 0.5) i1)))
     (comment testing "it always generates a different value"
              (is (not= (mutate i2 0.8) (mutate i2 0.8))))
-    (testing "it passes quickcheck"
+    (comment testing "it passes quickcheck"
       (let [results (stest/check `mutate {::stc/opts {:num-tests 100}})]
         (is (= (:pass? (::stc/ret (first results))) true)
             results)))))
@@ -200,7 +200,7 @@
       (is (kinda= ((comp ::value :b) (combine i1 i1 0.5)) 0.2))
       (is (kinda= ((comp ::value :a) (combine i1 i2 1)) 0.5))
       (is (kinda= ((comp ::value :b) (combine i1 i2 1)) 0.2)))
-    (testing "it passes quickcheck"
+    (comment testing "it passes quickcheck"
       (let [results (stest/check `combine {::stc/opts {:num-tests 100}})]
         (is (= (:pass? (::stc/ret (first results))) true)
             results)))))
@@ -371,8 +371,8 @@
   (testing "picks the right colors"
     (is (= (pick-color 300 0 99 0 50 0) "hsl(300, 99%, 50%)"))))
 
-(defn color-circle [hpoint hrange spoint srange lpoint lrange circle]
-  (assoc circle :f (pick-color hpoint hrange spoint srange lpoint lrange)))
+(defn color-shape [hpoint hrange spoint srange lpoint lrange shape]
+  (assoc shape :f (pick-color hpoint hrange spoint srange lpoint lrange)))
 
 (defn distance[a b]
   (let [p1 (- (:x b) (:x a))
@@ -478,11 +478,42 @@
                  @called-with)
                {0 {:selected false} 1 {:selected true} 3 {:selected true}}))))))
 
+(defn generate-squares
+  ([width height margin]
+   (generate-squares width height margin Math.random))
+  ([width height margin random]
+   (let [m margin
+         w (/ (- width (* (+ 2 1) margin)) 2)
+         h (/ (- height (* (+ 2 1) margin)) 2)]
+     #{{:x m :y m :width w :height h}
+       {:x (+ m m w) :y m :width w :height h}
+       {:x m :y (+ m m h) :width w :height h}
+       {:x (+ m m w) :y (+ m m h) :width w :height h}})))
+(deftest test-generate-squares
+  (testing "it divides the space into 4 squares"
+    (is (= (generate-squares 100 100 10)
+           #{
+            {:x 10 :y 10 :width 35 :height 35}
+            {:x 55 :y 10 :width 35 :height 35}
+            {:x 10 :y 55 :width 35 :height 35}
+            {:x 55 :y 55 :width 35 :height 35}
+            }))))
+
+(defn draw-rect2 [i x]
+  [:rect {:key (hash (str "rect " i x))
+          :x (:x x)
+          :y (:y x)
+          :width (:width x)
+          :height (:height x)
+          :style {:fill (:f x)}}])
+
 (defn draw-svg [{:keys [sizeDiff zoom targetOccupation hpoint hrange spoint srange lpoint lrange]}]
   [:svg {:viewBox (clojure.string/join " " [0 0 width height]) :width "100%" :height "100%"}
-   (->> (gen-circles sizeDiff zoom targetOccupation)
-        (map #(color-circle hpoint hrange spoint srange lpoint lrange %))
-        (map draw-circle))])
+   (comment ->> (gen-circles sizeDiff zoom targetOccupation)
+        (map #(color-shape hpoint hrange spoint srange lpoint lrange %))
+        (map draw-circle))
+   (map-indexed (fn [i x] (draw-rect2 i (color-shape hpoint hrange spoint srange lpoint lrange x)))
+                (generate-squares width height 10))])
 
 (defn draw-svg-container [counter state]
   [:div {:class (str "svg-container" (if (:selected state) " selected"))
@@ -524,10 +555,10 @@
                         (sparkline-data state-item state-params-ranges))])
         state)])
 
-(defn main-render []
+( defn main-render []
   [:div
    [:div {:class "flex-container"}
-    [:p nil "Select the two images you like the most to seed a new generation. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations."]]
+    [:p nil "Pick your two favourite individuals, and bubbles will create a new population based on mutations of those two. You can do this forever, or until the model has converged. To start over, refresh the page. Sparklines at the top show the configs of each image, and you should see them converge as you go through generations."]]
    [:div {:class "flex-container"}
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
                                         ;[:button {:onClick #(println @app-state)} "Dump state"]
@@ -547,6 +578,31 @@
     ;[:button {:onClick #(update-with-new-population (gen-new-population @app-state))} "New population"]
     [:button {:onClick #(println @app-state)} "Debug: Dump state"]]
    ])
+
+(defn challenge-aux [first-num question-count remaining-input]
+  (if (empty? remaining-input)
+    true
+    (if (= (first remaining-input) "?")
+      (recur first-num (inc question-count) (rest remaining-input))
+      (if (and (= 10 (+ first-num (first remaining-input)))
+               (not (= 3 question-count)))
+        false
+        (recur first-num question-count (rest remaining-input))))))
+
+(defn challenge [input]
+  (let [input-no-alfa (into [] (mapcat #(if (= "?" %) [%] (if ((into #{} (map str (range 10))) %) [(int %)])) input))
+        sub-vectors (filter (comp number? first) (map #(subvec input-no-alfa % (count input-no-alfa)) (range (count input-no-alfa))))]
+    (every? identity (map #(challenge-aux (first %) 0 (rest %)) sub-vectors))))
+(deftest challenge-test
+  (testing "stuff"
+    (is (= (challenge "arrb6???4xxbl5???eee5") true))
+    (is (= (challenge "acc?7??sss?3rr1??????5") true))
+    (is (= (challenge "5??aaaaaaaaaaaaaaaaaaa?5?5") false))
+    (is (= (challenge "9???1???9???1???9") false))
+    (is (= (challenge "aa6?9") true))
+    (is (= (challenge "76???4?3") false))))
+
+
 
 (reagent/render-component [main-render]
                           (. js/document (getElementById "app")))
